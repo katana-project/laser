@@ -186,9 +186,14 @@ const resolveImported = (
         }
     }
 
-    const matchingExternal = externalRefs.find(
+    let matchingExternal = externalRefs.find(
         (ext) => ext.packageName === (unit.packageName ?? "") && ext.name === firstPart
     );
+    if (!matchingExternal) {
+        // implicit import of java.lang.*
+        matchingExternal = externalRefs.find((ext) => ext.packageName === "java.lang" && ext.name === firstPart);
+    }
+
     if (matchingExternal) {
         return {
             kind: "imported",
