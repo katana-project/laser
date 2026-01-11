@@ -1,6 +1,9 @@
 import { SyntaxNode, Tree } from "@lezer/common";
 import { findChild } from "./tree-utils.js";
 
+/**
+ * Represents an import statement in a Java source file.
+ */
 export interface ImportInfo {
     importedName: string;
     isStatic: boolean;
@@ -8,14 +11,20 @@ export interface ImportInfo {
     node: SyntaxNode;
 }
 
+/**
+ * Represents a type declaration (class, interface, enum, annotation, module) in a Java source file.
+ */
 export interface TypeInfo {
     kind: "class" | "interface" | "enum" | "annotation" | "module";
     name: string;
-    qualifiedName: string;
+    qualifiedName: string; // without package prefix, includes enclosing types
     node: SyntaxNode;
     typeParameters: string[];
 }
 
+/**
+ * Represents a parsed Java compilation unit (source file).
+ */
 export interface CompilationUnit {
     tree: Tree;
     source: string;
@@ -45,6 +54,15 @@ const extractTypeParameters = (node: SyntaxNode, source: string): string[] => {
     return params;
 };
 
+/**
+ * Parses a Java compilation unit from a syntax tree and source code.
+ *
+ * This expects a `@lezer/java` parsed tree.
+ *
+ * @param tree - The syntax tree of the Java source file.
+ * @param source - The source code of the Java file.
+ * @returns The parsed compilation unit information.
+ */
 export const parseUnit = (tree: Tree, source: string): CompilationUnit => {
     const unit: CompilationUnit = {
         tree,

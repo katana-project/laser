@@ -18,7 +18,7 @@ describe("Type Reference Resolver", () => {
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
-            expect(resolved?.name).to.equal("Base");
+            expect(resolved?.name).to.equal("Linear.Base");
         });
 
         it("should resolve class A in extends", () => {
@@ -28,7 +28,7 @@ describe("Type Reference Resolver", () => {
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
-            expect(resolved?.name).to.equal("A");
+            expect(resolved?.name).to.equal("Linear.A");
         });
 
         it("should resolve class B in extends", () => {
@@ -38,7 +38,7 @@ describe("Type Reference Resolver", () => {
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
-            expect(resolved?.name).to.equal("B");
+            expect(resolved?.name).to.equal("Linear.B");
         });
 
         it("should resolve String as unresolved", () => {
@@ -272,7 +272,7 @@ public class Outer {
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
-            expect(resolved?.name).to.equal("Inner");
+            expect(resolved?.name).to.equal("Outer.Inner");
         });
 
         it("should resolve outer class reference from nested context", () => {
@@ -513,7 +513,7 @@ public class Outer {
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
-            expect(resolved?.name).to.equal("LocalClass");
+            expect(resolved?.name).to.equal("Outer.LocalClass");
         });
 
         it("should resolve local class in instantiation", () => {
@@ -522,7 +522,7 @@ public class Outer {
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
-            expect(resolved?.name).to.equal("LocalClass");
+            expect(resolved?.name).to.equal("Outer.LocalClass");
         });
 
         it("should resolve types within local class", () => {
@@ -547,7 +547,7 @@ public class Outer {
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
-            expect(resolved?.name).to.equal("AnotherLocal");
+            expect(resolved?.name).to.equal("Outer.AnotherLocal");
         });
 
         it("should resolve interface in anonymous class", () => {
@@ -851,7 +851,7 @@ public class Outer {
 
             const resolved = resolver.resolveAll();
 
-            const localRefs = resolved.filter((r) => r.name === "Local");
+            const localRefs = resolved.filter((r) => r.name === "Outer.Local");
             expect(localRefs.length).to.be.greaterThan(1);
             expect(localRefs.every((r) => r.kind === "declared")).to.be.true;
 

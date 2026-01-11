@@ -5,18 +5,40 @@ import { CompilationUnit, TypeInfo } from "./unit.js";
 // i.e. no member references
 // this will probably need to be rewritten later to support that
 
+/**
+ * Basic type reference information.
+ */
 export interface TypeReference {
     name: string;
+}
+
+/**
+ * Local type reference within the same compilation unit.
+ */
+export interface LocalTypeReference extends TypeReference {
     node: SyntaxNode;
 }
 
+/**
+ * External type reference from another compilation unit.
+ */
+export interface ExternalTypeReference extends TypeReference {
+    qualifiedName: string;
+    packageName: string | null;
+}
+
+/**
+ * Resolved type information.
+ *
+ * Includes whether the type is declared locally, imported, a built-in type, or unresolved.
+ */
 export interface ResolvedType {
     kind: "declared" | "imported" | "builtin" | "unresolved";
     name: string;
     qualifiedName?: string;
     declaration?: SyntaxNode;
 
-    ref: TypeReference;
+    ref: LocalTypeReference;
 }
 
 const BUILTIN_TYPES = new Set(["byte", "short", "int", "long", "char", "float", "double", "boolean", "void"]);
@@ -88,7 +110,11 @@ const getTypeName = (node: SyntaxNode, source: string): string | null => {
     return null;
 };
 
-const collectAllTypeReferences = (node: SyntaxNode, source: string, refs: TypeReference[] = []): TypeReference[] => {
+const collectAllTypeReferences = (
+    node: SyntaxNode,
+    source: string,
+    refs: LocalTypeReference[] = []
+): LocalTypeReference[] => {
     const name = getTypeName(node, source);
     if (name) {
         const existing = refs.find((r) => r.node === node);
@@ -120,7 +146,11 @@ const resolveInUnit = (typeName: string, unit: CompilationUnit): TypeInfo | null
     return null;
 };
 
-const resolveImported = (typeRef: TypeReference, unit: CompilationUnit): ResolvedType => {
+const resolveImported = (
+    typeRef: LocalTypeReference,
+    unit: CompilationUnit,
+    externalRefs: ExternalTypeReference[]
+): ResolvedType => {
     const parts = typeRef.name.split(".");
     const firstPart = parts[0];
 
@@ -139,10 +169,54 @@ const resolveImported = (typeRef: TypeReference, unit: CompilationUnit): Resolve
         }
     }
 
+    for (const imp of unit.imports) {
+        if (imp.isWildcard) {
+            const packageName = imp.importedName;
+            const matchingExternal = externalRefs.find(
+                (ext) => ext.packageName === packageName && ext.name === firstPart
+            );
+            if (matchingExternal) {
+                return {
+                    kind: "imported",
+                    name: typeRef.name,
+                    qualifiedName: matchingExternal.qualifiedName,
+                    ref: typeRef,
+                };
+            }
+        }
+    }
+
+    const matchingExternal = externalRefs.find(
+        (ext) => ext.packageName === (unit.packageName ?? "") && ext.name === firstPart
+    );
+    if (matchingExternal) {
+        return {
+            kind: "imported",
+            name: typeRef.name,
+            qualifiedName: matchingExternal.qualifiedName,
+            ref: typeRef,
+        };
+    }
+
     return null;
 };
 
-export const resolveTypeReference = (typeRef: TypeReference, unit: CompilationUnit): ResolvedType => {
+/**
+ * Resolves a local type reference to its complete type information.
+ *
+ * @param typeRef - The local type reference to resolve
+ * @param unit - The compilation unit containing the reference
+ * @param externalRefs - Optional array of external type references for resolving wildcard imports and same-package classes.
+ *                       Each external reference should include the type name, qualified name, and package name.
+ *                       This enables resolution of types from wildcard imports (e.g., import java.util.*) and
+ *                       types in the same package that aren't explicitly imported.
+ * @returns ResolvedType containing complete type information
+ */
+export const resolveTypeReference = (
+    typeRef: LocalTypeReference,
+    unit: CompilationUnit,
+    externalRefs: ExternalTypeReference[] = []
+): ResolvedType => {
     const typeName = typeRef.name;
 
     if (BUILTIN_TYPES.has(typeName)) {
@@ -157,30 +231,16 @@ export const resolveTypeReference = (typeRef: TypeReference, unit: CompilationUn
     if (localResolved) {
         return {
             kind: "declared",
-            name: localResolved.name,
-            qualifiedName: localResolved.qualifiedName,
+            name: localResolved.qualifiedName,
+            qualifiedName: (unit.packageName ? `${unit.packageName}.` : "") + localResolved.qualifiedName,
             declaration: localResolved.node,
             ref: typeRef,
         };
     }
 
-    const importedResolved = resolveImported(typeRef, unit);
+    const importedResolved = resolveImported(typeRef, unit, externalRefs);
     if (importedResolved) {
         return importedResolved;
-    }
-
-    if (unit.packageName) {
-        const qualifiedName = `${unit.packageName}.${typeName}`;
-        const resolved = resolveInUnit(qualifiedName, unit);
-        if (resolved) {
-            return {
-                kind: "imported",
-                name: resolved.name,
-                qualifiedName: resolved.qualifiedName,
-                declaration: resolved.node,
-                ref: typeRef,
-            };
-        }
     }
 
     return {
@@ -190,24 +250,76 @@ export const resolveTypeReference = (typeRef: TypeReference, unit: CompilationUn
     };
 };
 
-// TODO: CompilationUnit should probably expand wildcard imports from a supplied classpath and add same-package classes as well
-
+/**
+ * Type reference resolver for a compilation unit.
+ *
+ * Provides methods to resolve type references at specific offsets,
+ * as well as resolving all type references in the unit.
+ */
 export interface TypeReferenceResolver {
+    /** The compilation unit being analyzed. */
     unit: CompilationUnit;
 
+    /**
+     * Resolves complete type information of the reference at the given offset.
+     *
+     * Returns null if no type reference is found at that position.
+     *
+     * @param offset - The offset in the source code
+     * @param side - Optional side to resolve on (-1 = left, 0 = exact, 1 = right)
+     * @returns ResolvedType or null
+     */
     resolveAt(offset: number, side?: -1 | 0 | 1): ResolvedType | null;
-    resolveReferenceAt(offset: number, side?: -1 | 0 | 1): TypeReference | null;
+
+    /**
+     * Resolves the local type reference at the given offset.
+     *
+     * Returns null if no type reference is found at that position.
+     *
+     * @param offset - The offset in the source code
+     * @param side - Optional side to resolve on (-1 = left, 0 = exact, 1 = right)
+     * @returns LocalTypeReference or null
+     */
+    resolveReferenceAt(offset: number, side?: -1 | 0 | 1): LocalTypeReference | null;
+
+    /**
+     * Resolves all type references in the compilation unit.
+     *
+     * @returns An array of resolved type information for all references.
+     */
     resolveAll(): ResolvedType[];
 }
 
-export const createTypeReferenceResolver = (unit: CompilationUnit): TypeReferenceResolver => {
+/**
+ * Creates a type reference resolver for a compilation unit.
+ *
+ * @param unit - The compilation unit to analyze
+ * @param refs - Optional array of external type references for resolving wildcard imports and same-package classes.
+ *               Each external reference should include the type name, qualified name, and package name.
+ *               This enables resolution of types from wildcard imports (e.g., import java.util.*) and
+ *               types in the same package that aren't explicitly imported.
+ *
+ * @example
+ * ```typescript
+ * const externalRefs = [
+ *   { name: "List", qualifiedName: "java.util.List", packageName: "java.util" },
+ *   { name: "HashMap", qualifiedName: "java.util.HashMap", packageName: "java.util" },
+ *   { name: "OtherClass", qualifiedName: "com.example.OtherClass", packageName: "com.example" }
+ * ];
+ * const resolver = createTypeReferenceResolver(unit, externalRefs);
+ * ```
+ */
+export const createTypeReferenceResolver = (
+    unit: CompilationUnit,
+    refs: ExternalTypeReference[] = []
+): TypeReferenceResolver => {
     return {
         unit,
         resolveAt(offset: number, side?: -1 | 0 | 1) {
             const typeRef = this.resolveReferenceAt(offset, side);
             if (!typeRef) return null;
 
-            return resolveTypeReference(typeRef, unit);
+            return resolveTypeReference(typeRef, unit, refs);
         },
 
         resolveReferenceAt(offset: number, side?: -1 | 0 | 1) {
@@ -224,8 +336,8 @@ export const createTypeReferenceResolver = (unit: CompilationUnit): TypeReferenc
         },
 
         resolveAll() {
-            const refs = collectAllTypeReferences(unit.tree.topNode, unit.source);
-            return refs.map((ref) => resolveTypeReference(ref, unit));
+            const allRefs = collectAllTypeReferences(unit.tree.topNode, unit.source);
+            return allRefs.map((ref) => resolveTypeReference(ref, unit, refs));
         },
     };
 };

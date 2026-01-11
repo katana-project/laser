@@ -1,6 +1,6 @@
 import { parser } from "@lezer/java";
 import { expect } from "chai";
-import { findChild, findChildren, findDescendant, findDescendants, getChildren, getNodeStack } from "./tree-utils.js";
+import { findChild, findChildren, findDescendant, findDescendants, getChildren } from "./tree-utils.js";
 
 describe("Tree Utilities", () => {
     const source = `package test;
@@ -13,27 +13,6 @@ public class Test {
   }
 }`;
     const tree = parser.parse(source);
-
-    describe("getNodeStack", () => {
-        it("should get all nodes from root to offset", () => {
-            const offset = source.indexOf("value");
-            const nodes = getNodeStack(tree, offset);
-
-            expect(nodes).to.not.be.null;
-            expect(nodes).to.be.an("array");
-            expect(nodes!.length).to.be.greaterThan(1);
-            expect(nodes![0].type.name).to.equal("Program");
-        });
-
-        it("should include deepest node", () => {
-            const offset = source.indexOf("value");
-            const nodes = getNodeStack(tree, offset);
-
-            expect(nodes).to.not.be.null;
-            const lastNode = nodes![nodes!.length - 1];
-            expect(["Definition", "Identifier"]).to.include(lastNode.type.name);
-        });
-    });
 
     describe("getChildren", () => {
         it("should return all direct children", () => {

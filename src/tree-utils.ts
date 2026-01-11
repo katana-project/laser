@@ -1,19 +1,4 @@
-import { SyntaxNode, Tree } from "@lezer/common";
-
-export const getNodeStack = (tree: Tree, offset: number): SyntaxNode[] | null => {
-    if (offset < 0 || offset > tree.length) return null;
-
-    let node = tree.resolveInner(offset, 1);
-    if (!node) return null;
-
-    const nodes: SyntaxNode[] = [];
-    let current: SyntaxNode | null = node;
-    while (current) {
-        nodes.unshift(current);
-        current = current.parent;
-    }
-    return nodes.length > 0 ? nodes : null;
-};
+import { SyntaxNode } from "@lezer/common";
 
 export const getChildren = (node: SyntaxNode): SyntaxNode[] => {
     const children: SyntaxNode[] = [];
