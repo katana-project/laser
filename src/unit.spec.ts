@@ -7,7 +7,7 @@ describe("Unit Parser", () => {
         it("should parse simple package", () => {
             const source = "package com.example;";
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.packageName).to.equal("com.example");
         });
@@ -15,7 +15,7 @@ describe("Unit Parser", () => {
         it("should parse nested package", () => {
             const source = "package com.example.deep.nested;";
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.packageName).to.equal("com.example.deep.nested");
         });
@@ -23,7 +23,7 @@ describe("Unit Parser", () => {
         it("should handle missing package", () => {
             const source = "public class Test {}";
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.packageName).to.be.null;
         });
@@ -34,7 +34,7 @@ describe("Unit Parser", () => {
             const source = `package test;
 import java.util.List;`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.imports).to.have.lengthOf(1);
             expect(unit.imports[0].importedName).to.equal("java.util.List");
@@ -46,7 +46,7 @@ import java.util.List;`;
             const source = `package test;
 import java.util.*;`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.imports).to.have.lengthOf(1);
             expect(unit.imports[0].importedName).to.equal("java.util");
@@ -57,7 +57,7 @@ import java.util.*;`;
             const source = `package test;
 import static java.lang.Math.PI;`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.imports).to.have.lengthOf(1);
             expect(unit.imports[0].importedName).to.equal("java.lang.Math.PI");
@@ -70,7 +70,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.imports).to.have.lengthOf(3);
             expect(unit.imports[0].importedName).to.equal("java.util.List");
@@ -84,7 +84,7 @@ import java.util.Map;`;
             const source = `package test;
 public class MyClass {}`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(1);
             expect(unit.types[0].name).to.equal("MyClass");
@@ -95,7 +95,7 @@ public class MyClass {}`;
             const source = `package test;
 public class Generic<T, U> {}`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(1);
             expect(unit.types[0].name).to.equal("Generic");
@@ -110,7 +110,7 @@ public class Outer {
   }
 }`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(3);
 
@@ -130,7 +130,7 @@ class First {}
 class Second {}
 class Third {}`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(3);
             expect(unit.types.map((c) => c.name)).to.include.members(["First", "Second", "Third"]);
@@ -142,7 +142,7 @@ class Third {}`;
             const source = `package test;
 public interface MyInterface {}`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(1);
             expect(unit.types[0].name).to.equal("MyInterface");
@@ -153,7 +153,7 @@ public interface MyInterface {}`;
             const source = `package test;
 public interface Generic<T> {}`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(1);
             expect(unit.types[0].typeParameters).to.deep.equal(["T"]);
@@ -165,7 +165,7 @@ public class Outer {
   interface Inner {}
 }`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(2);
             expect(unit.types[1].qualifiedName).to.equal("Outer.Inner");
@@ -177,7 +177,7 @@ public interface Outer {
   interface Inner {}
 }`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(2);
 
@@ -193,7 +193,7 @@ public enum Color {
   RED, GREEN, BLUE
 }`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(1);
             expect(unit.types[0].name).to.equal("Color");
@@ -206,7 +206,7 @@ public class Outer {
   enum Status { ACTIVE, INACTIVE }
 }`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(2);
             const status = unit.types.find((c) => c.name === "Status");
@@ -234,7 +234,7 @@ interface TopLevelInterface {
   class InterfaceClass {}
 }`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.packageName).to.equal("com.example.project");
             expect(unit.imports).to.have.lengthOf(3);
@@ -260,7 +260,7 @@ public class A {
   }
 }`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(4);
 
@@ -272,7 +272,7 @@ public class A {
             const source = `package test;
 public class MultiGeneric<K, V, T extends Comparable<T>> {}`;
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.types).to.have.lengthOf(1);
             expect(unit.types[0].typeParameters).to.deep.equal(["K", "V", "T"]);
@@ -284,7 +284,7 @@ public class MultiGeneric<K, V, T extends Comparable<T>> {}`;
             const { readFileSync } = require("fs");
             const source = readFileSync("samples/sample/inheritance/Linear.java", "utf-8");
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.packageName).to.equal("sample.inheritance");
             expect(unit.types).to.have.lengthOf(5);
@@ -294,7 +294,7 @@ public class MultiGeneric<K, V, T extends Comparable<T>> {}`;
             const { readFileSync } = require("fs");
             const source = readFileSync("samples/sample/generics/GenericListWrapper.java", "utf-8");
             const tree = parser.parse(source);
-            const unit = parseUnit(tree.topNode, source);
+            const unit = parseUnit(tree, source);
 
             expect(unit.packageName).to.equal("sample.generics");
             expect(unit.types).to.have.lengthOf(1);

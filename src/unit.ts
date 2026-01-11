@@ -1,4 +1,4 @@
-import { SyntaxNode } from "@lezer/common";
+import { SyntaxNode, Tree } from "@lezer/common";
 import { findChild } from "./tree-utils.js";
 
 export interface ImportInfo {
@@ -17,6 +17,9 @@ export interface TypeInfo {
 }
 
 export interface CompilationUnit {
+    tree: Tree;
+    source: string;
+
     packageName: string | null;
     imports: ImportInfo[];
     types: TypeInfo[];
@@ -42,8 +45,10 @@ const extractTypeParameters = (node: SyntaxNode, source: string): string[] => {
     return params;
 };
 
-export const parseUnit = (root: SyntaxNode, source: string): CompilationUnit => {
+export const parseUnit = (tree: Tree, source: string): CompilationUnit => {
     const unit: CompilationUnit = {
+        tree,
+        source,
         packageName: null,
         imports: [],
         types: [],
@@ -125,7 +130,7 @@ export const parseUnit = (root: SyntaxNode, source: string): CompilationUnit => 
         }
     };
 
-    processNode(root, "");
+    processNode(tree.topNode, "");
 
     return unit;
 };

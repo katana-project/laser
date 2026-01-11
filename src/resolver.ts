@@ -1,6 +1,5 @@
-import { SyntaxNode, Tree } from "@lezer/common";
-import { getNodeStack } from "./tree-utils.js";
-import { CompilationUnit, parseUnit, TypeInfo } from "./unit.js";
+import { SyntaxNode } from "@lezer/common";
+import { CompilationUnit, TypeInfo } from "./unit.js";
 
 // resolving type information out of an AST is hard, so we'll focus on basic name resolution for now
 // i.e. no member references
@@ -89,22 +88,7 @@ const getTypeName = (node: SyntaxNode, source: string): string | null => {
     return null;
 };
 
-const findTypeReference = (nodes: SyntaxNode[], source: string): TypeReference | null => {
-    for (let i = nodes.length - 1; i >= 0; i--) {
-        const node = nodes[i];
-        const name = getTypeName(node, source);
-        if (name) {
-            return {
-                name,
-                node,
-            };
-        }
-    }
-
-    return null;
-};
-
-const collectAllTypeReferences = (node: SyntaxNode, source: string, refs: TypeReference[]): void => {
+const collectAllTypeReferences = (node: SyntaxNode, source: string, refs: TypeReference[] = []): TypeReference[] => {
     const name = getTypeName(node, source);
     if (name) {
         const existing = refs.find((r) => r.node === node);
@@ -122,6 +106,8 @@ const collectAllTypeReferences = (node: SyntaxNode, source: string, refs: TypeRe
             child = child.nextSibling;
         }
     }
+
+    return refs;
 };
 
 const resolveInUnit = (typeName: string, unit: CompilationUnit): TypeInfo | null => {
@@ -209,36 +195,36 @@ export const resolveTypeReference = (typeRef: TypeReference, unit: CompilationUn
 export interface TypeReferenceResolver {
     unit: CompilationUnit;
 
-    resolveAt(offset: number): ResolvedType | null;
-    resolveReferenceAt(offset: number): TypeReference | null;
+    resolveAt(offset: number, side?: -1 | 0 | 1): ResolvedType | null;
+    resolveReferenceAt(offset: number, side?: -1 | 0 | 1): TypeReference | null;
     resolveAll(): ResolvedType[];
 }
 
-export const createTypeReferenceResolver = (tree: Tree, source: string): TypeReferenceResolver => {
-    const unit = parseUnit(tree.topNode, source);
-
+export const createTypeReferenceResolver = (unit: CompilationUnit): TypeReferenceResolver => {
     return {
         unit,
-        resolveAt: (offset: number) => {
-            const nodes = getNodeStack(tree, offset);
-            if (!nodes) return null;
-
-            const typeRef = findTypeReference(nodes, source);
+        resolveAt(offset: number, side?: -1 | 0 | 1) {
+            const typeRef = this.resolveReferenceAt(offset, side);
             if (!typeRef) return null;
 
             return resolveTypeReference(typeRef, unit);
         },
 
-        resolveReferenceAt: (offset: number) => {
-            const nodes = getNodeStack(tree, offset);
-            if (!nodes) return null;
+        resolveReferenceAt(offset: number, side?: -1 | 0 | 1) {
+            const node = unit.tree.resolveInner(offset, side);
+            const name = getTypeName(node, unit.source);
+            if (name) {
+                return {
+                    name,
+                    node,
+                };
+            }
 
-            return findTypeReference(nodes, source);
+            return null;
         },
 
-        resolveAll: () => {
-            const refs: TypeReference[] = [];
-            collectAllTypeReferences(tree.topNode, source, refs);
+        resolveAll() {
+            const refs = collectAllTypeReferences(unit.tree.topNode, unit.source);
             return refs.map((ref) => resolveTypeReference(ref, unit));
         },
     };

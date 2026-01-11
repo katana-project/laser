@@ -2,16 +2,18 @@ import { parser } from "@lezer/java";
 import { expect } from "chai";
 import { readFileSync } from "fs";
 import { createTypeReferenceResolver } from "./resolver.js";
+import { parseUnit } from "./unit";
 
 describe("Type Reference Resolver", () => {
     describe("Linear.java - simple inheritance", () => {
         const source = readFileSync("samples/sample/inheritance/Linear.java", "utf-8");
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should resolve Base interface", () => {
             const baseOffset = source.indexOf("implements Base");
-            const offset = baseOffset + "implements ".length;
+            const offset = baseOffset + "implements ".length + 1;
             const resolved = resolver.resolveAt(offset);
 
             expect(resolved).to.not.be.null;
@@ -22,7 +24,7 @@ describe("Type Reference Resolver", () => {
         it("should resolve class A in extends", () => {
             const extendsAOffset = source.indexOf("extends A");
             const offset = extendsAOffset + "extends ".length;
-            const resolved = resolver.resolveAt(offset);
+            const resolved = resolver.resolveAt(offset, 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
@@ -32,7 +34,7 @@ describe("Type Reference Resolver", () => {
         it("should resolve class B in extends", () => {
             const extendsBOffset = source.indexOf("extends B");
             const offset = extendsBOffset + "extends ".length;
-            const resolved = resolver.resolveAt(offset);
+            const resolved = resolver.resolveAt(offset, 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
@@ -67,7 +69,8 @@ describe("Type Reference Resolver", () => {
     describe("GenericListWrapper.java - generics and imports", () => {
         const source = readFileSync("samples/sample/generics/GenericListWrapper.java", "utf-8");
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should mark List from wildcard import as unresolved", () => {
             const listOffset = source.indexOf("List<String>");
@@ -91,7 +94,7 @@ describe("Type Reference Resolver", () => {
 
         it("should mark HashSet from wildcard import as unresolved", () => {
             const hashSetOffset = source.indexOf("new HashSet<>");
-            const offset = hashSetOffset + "new ".length;
+            const offset = hashSetOffset + "new ".length + 1;
             const resolved = resolver.resolveAt(offset);
 
             expect(resolved).to.not.be.null;
@@ -101,7 +104,7 @@ describe("Type Reference Resolver", () => {
 
         it("should resolve GenericListWrapper class", () => {
             const gwOffset = source.indexOf("new GenericListWrapper<>");
-            const offset = gwOffset + "new ".length;
+            const offset = gwOffset + "new ".length + 1;
             const resolved = resolver.resolveAt(offset);
 
             expect(resolved).to.not.be.null;
@@ -140,7 +143,8 @@ describe("Type Reference Resolver", () => {
     describe("FixedDataProcessor.java - multiple imports", () => {
         const source = readFileSync("samples/sample/FixedDataProcessor.java", "utf-8");
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should resolve Path from import", () => {
             const pathOffset = source.indexOf("Path path");
@@ -200,7 +204,8 @@ public class Test {
   public java.util.Void method() {}
 }`;
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should find type reference at field type", () => {
             const listOffset = source.indexOf("List<String>");
@@ -258,7 +263,8 @@ public class Outer {
   }
 }`;
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should resolve nested class reference", () => {
             const innerOffset = source.indexOf("Inner i");
@@ -300,7 +306,8 @@ public class Primitives {
   void method() {}
 }`;
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should resolve int as builtin", () => {
             const intOffset = source.indexOf("int x");
@@ -341,11 +348,12 @@ class Implementation implements MyInterface {
   public void doSomething() {}
 }`;
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should resolve interface reference", () => {
             const interfaceOffset = source.indexOf("implements MyInterface");
-            const offset = interfaceOffset + "implements ".length;
+            const offset = interfaceOffset + "implements ".length + 1;
             const resolved = resolver.resolveAt(offset);
 
             expect(resolved).to.not.be.null;
@@ -383,11 +391,12 @@ public class AnnotatedClass {
   }
 }`;
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should resolve annotation type references", () => {
             const retentionOffset = source.indexOf("@Retention(");
-            const resolved = resolver.resolveAt(retentionOffset + "@".length);
+            const resolved = resolver.resolveAt(retentionOffset + "@".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("imported");
@@ -423,7 +432,7 @@ public class AnnotatedClass {
 
         it("should resolve custom annotation references", () => {
             const customOffset = source.indexOf("@CustomAnnotation");
-            const resolved = resolver.resolveAt(customOffset + "@".length);
+            const resolved = resolver.resolveAt(customOffset + "@".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
@@ -432,7 +441,7 @@ public class AnnotatedClass {
 
         it("should resolve marker annotations", () => {
             const overrideOffset = source.indexOf("@Override");
-            const resolved = resolver.resolveAt(overrideOffset + "@".length);
+            const resolved = resolver.resolveAt(overrideOffset + "@".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.name).to.equal("Override");
@@ -440,7 +449,7 @@ public class AnnotatedClass {
 
         it("should resolve deprecated annotation", () => {
             const deprecatedOffset = source.indexOf("@Deprecated");
-            const resolved = resolver.resolveAt(deprecatedOffset + "@".length);
+            const resolved = resolver.resolveAt(deprecatedOffset + "@".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.name).to.equal("Deprecated");
@@ -455,7 +464,7 @@ public class AnnotatedClass {
         });
 
         it("should find annotation type reference", () => {
-            const typeRef = resolver.resolveReferenceAt(source.indexOf("@SuppressWarnings") + "@".length);
+            const typeRef = resolver.resolveReferenceAt(source.indexOf("@SuppressWarnings") + "@".length + 1);
 
             expect(typeRef).to.not.be.null;
             expect(typeRef?.name).to.equal("SuppressWarnings");
@@ -495,7 +504,8 @@ public class Outer {
   }
 }`;
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should resolve local class reference", () => {
             const localOffset = source.indexOf("LocalClass local");
@@ -508,7 +518,7 @@ public class Outer {
 
         it("should resolve local class in instantiation", () => {
             const newLocalOffset = source.indexOf("new LocalClass()");
-            const resolved = resolver.resolveAt(newLocalOffset + "new ".length);
+            const resolved = resolver.resolveAt(newLocalOffset + "new ".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
@@ -517,7 +527,7 @@ public class Outer {
 
         it("should resolve types within local class", () => {
             const stringOffset = source.indexOf("private String value");
-            const resolved = resolver.resolveAt(stringOffset + "private ".length);
+            const resolved = resolver.resolveAt(stringOffset + "private ".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.name).to.equal("String");
@@ -525,7 +535,7 @@ public class Outer {
 
         it("should resolve return types in local class methods", () => {
             const returnOffset = source.indexOf("public String getValue()");
-            const resolved = resolver.resolveAt(returnOffset + "public ".length);
+            const resolved = resolver.resolveAt(returnOffset + "public ".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.name).to.equal("String");
@@ -550,7 +560,7 @@ public class Outer {
 
         it("should resolve types in anonymous class instantiation", () => {
             const newRunnableOffset = source.indexOf("new Runnable()");
-            const resolved = resolver.resolveAt(newRunnableOffset + "new ".length);
+            const resolved = resolver.resolveAt(newRunnableOffset + "new ".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.name).to.equal("Runnable");
@@ -581,11 +591,12 @@ public class AnnotatedWithArrays {
   public void method() {}
 }`;
         const tree = parser.parse(source);
-        const resolver = createTypeReferenceResolver(tree, source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
 
         it("should resolve Target annotation", () => {
             const targetOffset = source.indexOf("@Target");
-            const resolved = resolver.resolveAt(targetOffset + "@".length);
+            const resolved = resolver.resolveAt(targetOffset + "@".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("imported");
@@ -603,7 +614,7 @@ public class AnnotatedWithArrays {
 
         it("should resolve MultiTarget annotation usage", () => {
             const multiTargetOffset = source.indexOf("@MultiTarget(");
-            const resolved = resolver.resolveAt(multiTargetOffset + "@".length);
+            const resolved = resolver.resolveAt(multiTargetOffset + "@".length + 1);
 
             expect(resolved).to.not.be.null;
             expect(resolved?.kind).to.equal("declared");
@@ -634,6 +645,75 @@ public class AnnotatedWithArrays {
         });
     });
 
+    describe("BinarySearch.java - arrays and primitives", () => {
+        const source = readFileSync("samples/sample/math/BinarySearch.java", "utf-8");
+        const tree = parser.parse(source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
+
+        it("should resolve BinarySearch class reference", () => {
+            const bsOffset = source.indexOf("BinarySearch ob");
+            const resolved = resolver.resolveAt(bsOffset + 1);
+
+            expect(resolved).to.not.be.null;
+            expect(resolved?.kind).to.equal("declared");
+            expect(resolved?.name).to.equal("BinarySearch");
+        });
+
+        it("should resolve int primitive type", () => {
+            const intOffset = source.indexOf("int arr[]");
+            const resolved = resolver.resolveAt(intOffset + 1);
+
+            expect(resolved).to.not.be.null;
+            expect(resolved?.kind).to.equal("builtin");
+            expect(resolved?.name).to.equal("int");
+        });
+
+        it("should resolve String as unresolved", () => {
+            const stringOffset = source.indexOf("String args[]");
+            const resolved = resolver.resolveAt(stringOffset + 1);
+
+            expect(resolved).to.not.be.null;
+            expect(resolved?.kind).to.equal("unresolved");
+            expect(resolved?.name).to.equal("String");
+        });
+
+        it("should resolve void return type", () => {
+            const voidOffset = source.indexOf("void main");
+            const resolved = resolver.resolveAt(voidOffset + 1);
+
+            expect(resolved).to.not.be.null;
+            expect(resolved?.kind).to.equal("builtin");
+            expect(resolved?.name).to.equal("void");
+        });
+
+        it("should parse unit correctly", () => {
+            const unit = resolver.unit;
+
+            expect(unit.packageName).to.equal("sample.math");
+            expect(unit.types).to.have.lengthOf(1);
+            expect(unit.types[0].name).to.equal("BinarySearch");
+        });
+
+        it("should resolve all type references", () => {
+            const resolved = resolver.resolveAll();
+
+            expect(resolved.length).to.be.greaterThan(0);
+
+            const intRefs = resolved.filter((r) => r.name === "int");
+            expect(intRefs.length).to.be.greaterThan(0);
+            expect(intRefs.every((r) => r.kind === "builtin")).to.be.true;
+
+            const stringRefs = resolved.filter((r) => r.name === "String");
+            expect(stringRefs).to.have.lengthOf(1);
+            expect(stringRefs[0].kind).to.equal("unresolved");
+
+            const bsRefs = resolved.filter((r) => r.name === "BinarySearch");
+            expect(bsRefs.length).to.be.greaterThan(0);
+            expect(bsRefs.every((r) => r.kind === "declared")).to.be.true;
+        });
+    });
+
     describe("resolveAll", () => {
         it("should resolve all type references in a simple class", () => {
             const source = `package test;
@@ -647,7 +727,8 @@ public class Simple {
   }
 }`;
             const tree = parser.parse(source);
-            const resolver = createTypeReferenceResolver(tree, source);
+            const unit = parseUnit(tree, source);
+            const resolver = createTypeReferenceResolver(unit);
 
             const resolved = resolver.resolveAll();
 
@@ -671,7 +752,8 @@ public class GenericTest {
   private Map<Integer, String> map;
 }`;
             const tree = parser.parse(source);
-            const resolver = createTypeReferenceResolver(tree, source);
+            const unit = parseUnit(tree, source);
+            const resolver = createTypeReferenceResolver(unit);
 
             const resolved = resolver.resolveAll();
 
@@ -702,7 +784,8 @@ class Child extends Parent implements Another {
   private Base field;
 }`;
             const tree = parser.parse(source);
-            const resolver = createTypeReferenceResolver(tree, source);
+            const unit = parseUnit(tree, source);
+            const resolver = createTypeReferenceResolver(unit);
 
             const resolved = resolver.resolveAll();
 
@@ -733,7 +816,8 @@ public class AnnotatedClass {
   }
 }`;
             const tree = parser.parse(source);
-            const resolver = createTypeReferenceResolver(tree, source);
+            const unit = parseUnit(tree, source);
+            const resolver = createTypeReferenceResolver(unit);
 
             const resolved = resolver.resolveAll();
 
@@ -762,7 +846,8 @@ public class Outer {
   }
 }`;
             const tree = parser.parse(source);
-            const resolver = createTypeReferenceResolver(tree, source);
+            const unit = parseUnit(tree, source);
+            const resolver = createTypeReferenceResolver(unit);
 
             const resolved = resolver.resolveAll();
 
@@ -777,7 +862,8 @@ public class Outer {
         it("should resolve all type references from real file", () => {
             const source = readFileSync("samples/sample/inheritance/Linear.java", "utf-8");
             const tree = parser.parse(source);
-            const resolver = createTypeReferenceResolver(tree, source);
+            const unit = parseUnit(tree, source);
+            const resolver = createTypeReferenceResolver(unit);
 
             const resolved = resolver.resolveAll();
 
@@ -802,7 +888,8 @@ public class Test {
   private String c;
 }`;
             const tree = parser.parse(source);
-            const resolver = createTypeReferenceResolver(tree, source);
+            const unit = parseUnit(tree, source);
+            const resolver = createTypeReferenceResolver(unit);
 
             const resolved = resolver.resolveAll();
             const stringRefs = resolved.filter((r) => r.name === "String");
@@ -826,7 +913,8 @@ public class ComplexGenerics<T extends List<String>> {
   }
 }`;
             const tree = parser.parse(source);
-            const resolver = createTypeReferenceResolver(tree, source);
+            const unit = parseUnit(tree, source);
+            const resolver = createTypeReferenceResolver(unit);
 
             const resolved = resolver.resolveAll();
 
@@ -846,7 +934,8 @@ public class ComplexGenerics<T extends List<String>> {
         it("should resolve all types with wildcard imports", () => {
             const source = readFileSync("samples/sample/generics/GenericListWrapper.java", "utf-8");
             const tree = parser.parse(source);
-            const resolver = createTypeReferenceResolver(tree, source);
+            const unit = parseUnit(tree, source);
+            const resolver = createTypeReferenceResolver(unit);
 
             const resolved = resolver.resolveAll();
 
