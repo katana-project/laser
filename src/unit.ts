@@ -99,7 +99,15 @@ export const parseUnit = (root: SyntaxNode, source: string): CompilationUnit => 
                     typeParameters,
                 });
 
-                const classBody = findChild(node, (c) => c.name === "ClassBody" || c.name === "InterfaceBody");
+                const classBody = findChild(
+                    node,
+                    (c) =>
+                        c.name === "ClassBody" ||
+                        c.name === "InterfaceBody" ||
+                        c.name === "AnnotationTypeBody" ||
+                        c.name === "ModuleBody" ||
+                        c.name === "EnumBody"
+                );
                 if (classBody) {
                     let child = classBody.firstChild;
                     while (child) {
