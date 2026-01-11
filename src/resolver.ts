@@ -89,10 +89,10 @@ const getTypeName = (node: SyntaxNode, source: string): string | null => {
             if (
                 !node.parent ||
                 (node.parent.name !== "EnumDeclaration" &&
-                node.parent.name !== "ClassDeclaration" &&
-                node.parent.name !== "ConstructorDeclaration" &&
-                node.parent.name !== "InterfaceDeclaration" &&
-                node.parent.name !== "LocalVariableDeclaration")
+                    node.parent.name !== "ClassDeclaration" &&
+                    node.parent.name !== "ConstructorDeclaration" &&
+                    node.parent.name !== "InterfaceDeclaration" &&
+                    node.parent.name !== "LocalVariableDeclaration")
             ) {
                 // only allow getting Definition-based type names from these declarations
                 return null;
@@ -107,7 +107,9 @@ const getTypeName = (node: SyntaxNode, source: string): string | null => {
             }
 
             // pointing at an inner class access or a different expression, we can't resolve that
-            return node.firstChild?.name === "Identifier" ? source.slice(node.firstChild.from, node.firstChild.to) : null;
+            return node.firstChild?.name === "Identifier"
+                ? source.slice(node.firstChild.from, node.firstChild.to)
+                : null;
         }
     }
 
@@ -142,7 +144,11 @@ const collectAllTypeReferences = (
 
 const resolveInUnit = (typeName: string, unit: CompilationUnit): TypeInfo | null => {
     for (const cls of unit.types) {
-        if (cls.name === typeName || cls.qualifiedName === typeName) {
+        if (
+            cls.name === typeName ||
+            cls.qualifiedName === typeName ||
+            (unit.packageName ? `${unit.packageName}.` : "") + cls.qualifiedName === typeName
+        ) {
             return cls;
         }
     }
@@ -155,29 +161,21 @@ const resolveImported = (
     unit: CompilationUnit,
     externalRefs: ExternalTypeReference[]
 ): ResolvedType => {
-    const parts = typeRef.name.split(".");
-    const firstPart = parts[0];
-
     for (const imp of unit.imports) {
-        if (!imp.isWildcard) {
-            const importParts = imp.importedName.split(".");
-            const importedClass = importParts[importParts.length - 1];
-            if (importedClass === firstPart) {
-                return {
-                    kind: "imported",
-                    name: typeRef.name,
-                    qualifiedName: imp.importedName,
-                    ref: typeRef,
-                };
-            }
+        if (!imp.isWildcard && (imp.importedName === typeRef.name || imp.importedName.endsWith(`.${typeRef.name}`))) {
+            return {
+                kind: "imported",
+                name: typeRef.name,
+                qualifiedName: imp.importedName,
+                ref: typeRef,
+            };
         }
     }
 
     for (const imp of unit.imports) {
         if (imp.isWildcard) {
-            const packageName = imp.importedName;
             const matchingExternal = externalRefs.find(
-                (ext) => ext.packageName === packageName && ext.name === firstPart
+                (ext) => `${imp.importedName}.${typeRef.name}` === ext.qualifiedName
             );
             if (matchingExternal) {
                 return {
@@ -190,12 +188,13 @@ const resolveImported = (
         }
     }
 
+    // same-package classes
     let matchingExternal = externalRefs.find(
-        (ext) => ext.packageName === (unit.packageName ?? "") && ext.name === firstPart
+        (ext) => ext.packageName === (unit.packageName ?? "") && ext.name === typeRef.name
     );
     if (!matchingExternal) {
         // implicit import of java.lang.*
-        matchingExternal = externalRefs.find((ext) => ext.packageName === "java.lang" && ext.name === firstPart);
+        matchingExternal = externalRefs.find((ext) => ext.packageName === "java.lang" && ext.name === typeRef.name);
     }
 
     if (matchingExternal) {
@@ -232,6 +231,17 @@ export const resolveTypeReference = (
         return {
             kind: "builtin",
             name: typeName,
+            ref: typeRef,
+        };
+    }
+
+    // find exact match in external refs - fully qualified name?
+    const externalMatch = externalRefs.find((ext) => ext.qualifiedName === typeName);
+    if (externalMatch) {
+        return {
+            kind: "imported",
+            name: typeName,
+            qualifiedName: externalMatch.qualifiedName,
             ref: typeRef,
         };
     }
