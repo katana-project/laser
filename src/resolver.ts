@@ -74,9 +74,11 @@ const getTypeName = (node: SyntaxNode, source: string): string | null => {
                 } else if (
                     node.parent.name !== "MarkerAnnotation" &&
                     node.parent.name !== "Annotation" &&
-                    node.parent.name !== "AnnotationTypeDeclaration"
+                    node.parent.name !== "AnnotationTypeDeclaration" &&
+                    // the AST seems to be having a bit of trouble with ClassLiteral, mapping it to an Identifier instead
+                    !(node.nextSibling?.name === "." && node.nextSibling?.nextSibling?.name === "class")
                 ) {
-                    // only allow getting Identifier-based type names from annotations
+                    // only allow getting Identifier-based type names from annotations or class literals
                     return null;
                 }
             }
@@ -85,11 +87,12 @@ const getTypeName = (node: SyntaxNode, source: string): string | null => {
         }
         case "Definition": {
             if (
-                node.parent.name !== "EnumDeclaration" &&
+                !node.parent ||
+                (node.parent.name !== "EnumDeclaration" &&
                 node.parent.name !== "ClassDeclaration" &&
                 node.parent.name !== "ConstructorDeclaration" &&
                 node.parent.name !== "InterfaceDeclaration" &&
-                node.parent.name !== "LocalVariableDeclaration"
+                node.parent.name !== "LocalVariableDeclaration")
             ) {
                 // only allow getting Definition-based type names from these declarations
                 return null;
@@ -98,12 +101,13 @@ const getTypeName = (node: SyntaxNode, source: string): string | null => {
             return source.slice(node.from, node.to);
         }
         case "FieldAccess": {
-            if (node.parent?.name === "FieldAccess" || node.firstChild.name !== "Identifier") {
-                // pointing at a field, inner class access or a different expression, we can't resolve that
+            if (node.parent?.name === "FieldAccess") {
+                // pointing at a field, we can't resolve that
                 return null;
             }
 
-            return source.slice(node.firstChild.from, node.firstChild.to);
+            // pointing at an inner class access or a different expression, we can't resolve that
+            return node.firstChild?.name === "Identifier" ? source.slice(node.firstChild.from, node.firstChild.to) : null;
         }
     }
 
