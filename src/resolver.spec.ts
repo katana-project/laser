@@ -236,11 +236,23 @@ public class Test {
         });
 
         it("should find type reference at fully qualified return type", () => {
-            const voidOffset = source.indexOf("Void");
-            const typeRef = resolver.resolveReferenceAt(voidOffset + 1);
+            // pointing at "java" should return just "java"
+            const javaOffset = source.indexOf("java.util.Void");
+            const javaTypeRef = resolver.resolveReferenceAt(javaOffset + 1);
+            expect(javaTypeRef).to.not.be.null;
+            expect(javaTypeRef?.name).to.equal("java");
 
-            expect(typeRef).to.not.be.null;
-            expect(typeRef?.name).to.equal("java.util.Void");
+            // pointing at "util" should return "java.util"
+            const utilOffset = source.indexOf("util.Void");
+            const utilTypeRef = resolver.resolveReferenceAt(utilOffset + 1);
+            expect(utilTypeRef).to.not.be.null;
+            expect(utilTypeRef?.name).to.equal("java.util");
+
+            // pointing at "Void" should return "java.util.Void"
+            const voidOffset = source.indexOf("Void");
+            const voidTypeRef = resolver.resolveReferenceAt(voidOffset + 1);
+            expect(voidTypeRef).to.not.be.null;
+            expect(voidTypeRef?.name).to.equal("java.util.Void");
         });
 
         it("should return null when not on a type", () => {
@@ -292,6 +304,55 @@ public class Outer {
 
             const inner = unit.types.find((c) => c.name === "Inner");
             expect(inner?.qualifiedName).to.equal("Outer.Inner");
+        });
+
+        it("should resolve qualified inner class reference components separately", () => {
+            const source2 = `package test;
+
+public class Outer {
+  class Inner {
+  }
+
+  private final test.Outer.Inner field = null;
+  private final Outer.Inner anotherField = null;
+}`;
+            const tree2 = parser.parse(source2);
+            const unit2 = parseUnit(tree2, source2);
+            const resolver2 = createTypeReferenceResolver(unit2);
+
+            const qualifiedTypeOffset = source2.indexOf("Outer.Inner field");
+
+            // resolve at "Outer" (beginning of qualified name)
+            const outerResolved = resolver2.resolveAt(qualifiedTypeOffset + 1);
+            expect(outerResolved).to.not.be.null;
+            expect(outerResolved?.kind).to.equal("declared");
+            expect(outerResolved?.name).to.equal("test.Outer");
+            expect(outerResolved?.qualifiedName).to.equal("test.Outer");
+
+            // resolve at "Inner" (end of qualified name)
+            const innerOffset = source2.indexOf(".Inner field");
+            const innerResolved = resolver2.resolveAt(innerOffset + ".".length + 1);
+            expect(innerResolved).to.not.be.null;
+            expect(innerResolved?.kind).to.equal("declared");
+            expect(innerResolved?.name).to.equal("test.Outer.Inner");
+            expect(innerResolved?.qualifiedName).to.equal("test.Outer.Inner");
+
+            const anotherTypeOffset = source2.indexOf("Outer.Inner anotherField");
+
+            // resolve at "Outer" in second field
+            const anotherOuterResolved = resolver2.resolveAt(anotherTypeOffset + 1);
+            expect(anotherOuterResolved).to.not.be.null;
+            expect(anotherOuterResolved?.kind).to.equal("declared");
+            expect(anotherOuterResolved?.name).to.equal("Outer");
+            expect(anotherOuterResolved?.qualifiedName).to.equal("test.Outer");
+
+            // resolve at "Inner" in second field
+            const anotherInnerOffset = source2.indexOf(".Inner anotherField");
+            const anotherInnerResolved = resolver2.resolveAt(anotherInnerOffset + ".".length + 1);
+            expect(anotherInnerResolved).to.not.be.null;
+            expect(anotherInnerResolved?.kind).to.equal("declared");
+            expect(anotherInnerResolved?.name).to.equal("Outer.Inner");
+            expect(anotherInnerResolved?.qualifiedName).to.equal("test.Outer.Inner");
         });
     });
 

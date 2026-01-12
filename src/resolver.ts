@@ -52,15 +52,18 @@ const ALLOWED_PARENTS = new Set([
     "Definition",
     "FieldAccess",
 ]);
-const getTypeName = (node: SyntaxNode, source: string): string | null => {
+
+// the limit here is kinda hacking around cases where we don't want the entire fully qualified name
+// the AST is a bit awkward to work with in this regard
+const getTypeName = (node: SyntaxNode, source: string, limit: number = node.to): string | null => {
     switch (node.name) {
         case "TypeName":
         case "ScopedTypeName": {
             if (node.parent && ALLOWED_PARENTS.has(node.parent.type.name)) {
-                return getTypeName(node.parent, source);
+                return getTypeName(node.parent, source, limit);
             }
 
-            return source.slice(node.from, node.to);
+            return source.slice(node.from, Math.min(limit, node.to));
         }
         case "PrimitiveType":
         case "void": {
@@ -74,11 +77,10 @@ const getTypeName = (node: SyntaxNode, source: string): string | null => {
                 } else if (
                     node.parent.name !== "MarkerAnnotation" &&
                     node.parent.name !== "Annotation" &&
-                    node.parent.name !== "AnnotationTypeDeclaration" &&
-                    // the AST seems to be having a bit of trouble with ClassLiteral, mapping it to an Identifier instead
-                    !(node.nextSibling?.name === "." && node.nextSibling?.nextSibling?.name === "class")
+                    node.parent.name !== "AnnotationTypeDeclaration"
                 ) {
-                    // only allow getting Identifier-based type names from annotations or class literals
+                    // TODO: class literals are a bit broken in the AST, work around that here
+                    // only allow getting Identifier-based type names from annotations
                     return null;
                 }
             }
@@ -250,7 +252,7 @@ export const resolveTypeReference = (
     if (localResolved) {
         return {
             kind: "declared",
-            name: localResolved.qualifiedName,
+            name: typeName.includes(".") ? typeName : localResolved.qualifiedName,
             qualifiedName: (unit.packageName ? `${unit.packageName}.` : "") + localResolved.qualifiedName,
             declaration: localResolved.node,
             ref: typeRef,
