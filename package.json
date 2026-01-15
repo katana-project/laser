@@ -1,10 +1,10 @@
 {
     "name": "@katana-project/laser",
-    "version": "0.2.3",
+    "version": "0.2.4",
     "type": "module",
     "author": "katana-project",
     "license": "MIT",
-    "description": "A Java source code analysis engine, built on the Lezer parser.",
+    "description": "A Java source code analysis library, built on the Lezer parser.",
     "exports": {
         ".": {
             "types": "./dist/index.d.ts",

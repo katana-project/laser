@@ -30,10 +30,10 @@ export interface ExternalTypeReference extends TypeReference {
 /**
  * Resolved type information.
  *
- * Includes whether the type is declared locally, imported, a built-in type, or unresolved.
+ * Includes whether the type is declared locally, imported, or a built-in type.
  */
 export interface ResolvedType {
-    kind: "declared" | "imported" | "builtin" | "unresolved";
+    kind: "declared" | "imported" | "builtin";
     name: string;
     qualifiedName?: string;
     declaration?: SyntaxNode;
@@ -208,6 +208,8 @@ const resolveImported = (
         };
     }
 
+    // returning unresolved types would contain false positives for references that aren't actually types
+    // we don't have enough info to do ambiguity resolution here, so just return nothing
     return null;
 };
 
@@ -226,7 +228,7 @@ export const resolveTypeReference = (
     typeRef: LocalTypeReference,
     unit: CompilationUnit,
     externalRefs: ExternalTypeReference[] = []
-): ResolvedType => {
+): ResolvedType | null => {
     const typeName = typeRef.name;
 
     if (BUILTIN_TYPES.has(typeName)) {
@@ -264,11 +266,7 @@ export const resolveTypeReference = (
         return importedResolved;
     }
 
-    return {
-        kind: "unresolved",
-        name: typeName,
-        ref: typeRef,
-    };
+    return null;
 };
 
 /**
@@ -358,7 +356,7 @@ export const createTypeReferenceResolver = (
 
         resolveAll() {
             const allRefs = collectAllTypeReferences(unit.tree.topNode, unit.source);
-            return allRefs.map((ref) => resolveTypeReference(ref, unit, refs));
+            return allRefs.map((ref) => resolveTypeReference(ref, unit, refs)).filter(Boolean);
         },
     };
 };

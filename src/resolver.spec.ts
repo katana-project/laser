@@ -46,9 +46,7 @@ describe("Type Reference Resolver", () => {
             const offset = stringOffset + 1;
             const resolved = resolver.resolveAt(offset);
 
-            expect(resolved).to.not.be.null;
-            expect(resolved?.kind).to.equal("unresolved");
-            expect(resolved?.name).to.equal("String");
+            expect(resolved).to.be.null;
         });
 
         it("should parse unit correctly", () => {
@@ -77,9 +75,7 @@ describe("Type Reference Resolver", () => {
             const offset = listOffset + 1;
             const resolved = resolver.resolveAt(offset);
 
-            expect(resolved).to.not.be.null;
-            expect(resolved?.kind).to.equal("unresolved");
-            expect(resolved?.name).to.equal("List");
+            expect(resolved).to.be.null;
         });
 
         it("should mark Set from wildcard import as unresolved", () => {
@@ -87,9 +83,7 @@ describe("Type Reference Resolver", () => {
             const offset = setOffset + 1;
             const resolved = resolver.resolveAt(offset);
 
-            expect(resolved).to.not.be.null;
-            expect(resolved?.kind).to.equal("unresolved");
-            expect(resolved?.name).to.equal("Set");
+            expect(resolved).to.be.null;
         });
 
         it("should mark HashSet from wildcard import as unresolved", () => {
@@ -97,9 +91,7 @@ describe("Type Reference Resolver", () => {
             const offset = hashSetOffset + "new ".length + 1;
             const resolved = resolver.resolveAt(offset);
 
-            expect(resolved).to.not.be.null;
-            expect(resolved?.kind).to.equal("unresolved");
-            expect(resolved?.name).to.equal("HashSet");
+            expect(resolved).to.be.null;
         });
 
         it("should resolve GenericListWrapper class", () => {
@@ -117,9 +109,7 @@ describe("Type Reference Resolver", () => {
             const offset = collectionOffset + 1;
             const resolved = resolver.resolveAt(offset);
 
-            expect(resolved).to.not.be.null;
-            expect(resolved?.kind).to.equal("unresolved");
-            expect(resolved?.name).to.equal("Collection");
+            expect(resolved).to.be.null;
         });
 
         it("should parse unit with imports", () => {
@@ -168,13 +158,12 @@ describe("Type Reference Resolver", () => {
             expect(resolved?.qualifiedName).to.equal("java.io.IOException");
         });
 
-        it("should resolve ExampleFixedList", () => {
+        it("should not resolve ExampleFixedList", () => {
             const exampleOffset = source.indexOf("ExampleFixedList<String>");
             const offset = exampleOffset + 1;
             const resolved = resolver.resolveAt(offset);
 
-            expect(resolved).to.not.be.null;
-            expect(resolved?.name).to.equal("ExampleFixedList");
+            expect(resolved).to.be.null;
         });
 
         it("should parse multiple non-wildcard imports", () => {
@@ -435,6 +424,9 @@ class Implementation implements MyInterface {
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.lang.Deprecated;
+import java.lang.Override;
+import java.lang.String;
 
 @Retention(RetentionPolicy.RUNTIME)
 public @interface CustomAnnotation {
@@ -534,6 +526,9 @@ public class AnnotatedClass {
 
     describe("Local classes", () => {
         const source = `package test;
+
+import java.lang.Runnable;
+import java.lang.String;
 
 public class Outer {
   public void method() {
@@ -640,6 +635,8 @@ public class Outer {
 
 import java.lang.annotation.Target;
 import java.lang.annotation.ElementType;
+import java.lang.String;
+import java.lang.Class;
 
 @Target({ElementType.METHOD, ElementType.TYPE})
 public @interface MultiTarget {
@@ -734,9 +731,7 @@ public class AnnotatedWithArrays {
             const stringOffset = source.indexOf("String args[]");
             const resolved = resolver.resolveAt(stringOffset + 1);
 
-            expect(resolved).to.not.be.null;
-            expect(resolved?.kind).to.equal("unresolved");
-            expect(resolved?.name).to.equal("String");
+            expect(resolved).to.be.null;
         });
 
         it("should resolve void return type", () => {
@@ -766,8 +761,7 @@ public class AnnotatedWithArrays {
             expect(intRefs.every((r) => r.kind === "builtin")).to.be.true;
 
             const stringRefs = resolved.filter((r) => r.name === "String");
-            expect(stringRefs).to.have.lengthOf(1);
-            expect(stringRefs[0].kind).to.equal("unresolved");
+            expect(stringRefs).to.have.lengthOf(0);
 
             const bsRefs = resolved.filter((r) => r.name === "BinarySearch");
             expect(bsRefs.length).to.be.greaterThan(0);
@@ -778,6 +772,8 @@ public class AnnotatedWithArrays {
     describe("resolveAll", () => {
         it("should resolve all type references in a simple class", () => {
             const source = `package test;
+
+import java.lang.String;
 
 public class Simple {
   private String name;
@@ -807,6 +803,7 @@ public class Simple {
             const source = `package test;
 import java.util.List;
 import java.util.Map;
+import java.lang.String;
 
 public class GenericTest {
   private List<String> items;
@@ -830,7 +827,7 @@ public class GenericTest {
             expect(stringRefs).to.have.lengthOf(2);
 
             const integerRefs = resolved.filter((r) => r.name === "Integer");
-            expect(integerRefs).to.have.lengthOf(1);
+            expect(integerRefs).to.have.lengthOf(0);
         });
 
         it("should resolve all type references with inheritance", () => {
@@ -868,6 +865,7 @@ class Child extends Parent implements Another {
 
 import java.lang.Override;
 import java.lang.Deprecated;
+import java.lang.String;
 
 @Deprecated
 public class AnnotatedClass {
@@ -896,6 +894,8 @@ public class AnnotatedClass {
 
         it("should resolve all type references with local classes", () => {
             const source = `package test;
+
+import java.lang.String;
 
 public class Outer {
   public void method() {
@@ -935,13 +935,12 @@ public class Outer {
 
             const builtinTypes = resolved.filter((r) => r.kind === "builtin");
             expect(builtinTypes.length).to.be.greaterThan(0);
-
-            const unresolvedTypes = resolved.filter((r) => r.kind === "unresolved");
-            expect(unresolvedTypes.some((r) => r.name === "String")).to.be.true;
         });
 
         it("should not duplicate type references", () => {
             const source = `package test;
+
+import java.lang.String;
 
 public class Test {
   private String a;
@@ -965,6 +964,7 @@ public class Test {
             const source = `package test;
 import java.util.List;
 import java.util.Map;
+import java.lang.String;
 
 public class ComplexGenerics<T extends List<String>> {
   private Map<String, List<T>> data;
@@ -1001,13 +1001,6 @@ public class ComplexGenerics<T extends List<String>> {
             const resolved = resolver.resolveAll();
 
             expect(resolved.length).to.be.greaterThan(0);
-
-            const unresolvedFromWildcard = resolved.filter(
-                (r) =>
-                    r.kind === "unresolved" &&
-                    (r.name === "List" || r.name === "Set" || r.name === "HashSet" || r.name === "Collection")
-            );
-            expect(unresolvedFromWildcard.length).to.be.greaterThan(0);
 
             const declaredTypes = resolved.filter((r) => r.kind === "declared");
             expect(declaredTypes.some((r) => r.name === "GenericListWrapper")).to.be.true;
