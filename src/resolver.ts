@@ -95,7 +95,8 @@ const getTypeName = (node: SyntaxNode, source: string, limit: number = node.to):
                     node.parent.name !== "ClassDeclaration" &&
                     node.parent.name !== "ConstructorDeclaration" &&
                     node.parent.name !== "InterfaceDeclaration" &&
-                    node.parent.name !== "LocalVariableDeclaration")
+                    node.parent.name !== "LocalVariableDeclaration" &&
+                    node.parent.name !== "RecordDeclaration")
             ) {
                 // only allow getting Definition-based type names from these declarations
                 return null;
