@@ -25,6 +25,7 @@ export interface LocalTypeReference extends TypeReference {
 export interface ExternalTypeReference extends TypeReference {
     qualifiedName: string;
     packageName: string | null;
+    moduleName: string | null;
 }
 
 /**
@@ -163,8 +164,12 @@ const resolveImported = (
     unit: CompilationUnit,
     externalRefs: ExternalTypeReference[]
 ): ResolvedType => {
+    // type imports
     for (const imp of unit.imports) {
-        if (!imp.isWildcard && (imp.importedName === typeRef.name || imp.importedName.endsWith(`.${typeRef.name}`))) {
+        if (
+            imp.kind === "type" &&
+            (imp.importedName === typeRef.name || imp.importedName.endsWith(`.${typeRef.name}`))
+        ) {
             return {
                 kind: "imported",
                 name: typeRef.name,
@@ -174,10 +179,30 @@ const resolveImported = (
         }
     }
 
+    // wildcard imports
     for (const imp of unit.imports) {
-        if (imp.isWildcard) {
+        if (imp.kind === "wildcard") {
             const matchingExternal = externalRefs.find(
                 (ext) => `${imp.importedName}.${typeRef.name}` === ext.qualifiedName
+            );
+            if (matchingExternal) {
+                return {
+                    kind: "imported",
+                    name: typeRef.name,
+                    qualifiedName: matchingExternal.qualifiedName,
+                    ref: typeRef,
+                };
+            }
+        }
+    }
+
+    // module imports
+    for (const imp of unit.imports) {
+        if (imp.kind === "module") {
+            const matchingExternal = externalRefs.find(
+                (ext) =>
+                    ext.moduleName === imp.importedName &&
+                    (ext.name === typeRef.name || ext.qualifiedName.endsWith(`.${typeRef.name}`))
             );
             if (matchingExternal) {
                 return {

@@ -1,4 +1,4 @@
-import { parser } from "@lezer/java";
+import { parser } from "@run-slicer/lezer-java";
 import { expect } from "chai";
 import { findChild, findChildren, findDescendant, findDescendants, getChildren } from "./tree-utils.js";
 

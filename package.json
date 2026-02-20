@@ -1,6 +1,6 @@
 {
     "name": "@katana-project/laser",
-    "version": "0.2.4",
+    "version": "0.3.0",
     "type": "module",
     "author": "katana-project",
     "license": "MIT",
@@ -26,7 +26,7 @@
         "@lezer/common": "^1.5.0"
     },
     "devDependencies": {
-        "@lezer/java": "^1.1.3",
+        "@run-slicer/lezer-java": "^1.2.1",
         "@types/chai": "^5.2.3",
         "@types/mocha": "^10.0.10",
         "@types/node": "^25.0.5",

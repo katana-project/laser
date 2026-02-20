@@ -5,9 +5,8 @@ import { findChild } from "./tree-utils.js";
  * Represents an import statement in a Java source file.
  */
 export interface ImportInfo {
+    kind: "type" | "wildcard" | "static" | "module";
     importedName: string;
-    isStatic: boolean;
-    isWildcard: boolean;
     node: SyntaxNode;
 }
 
@@ -15,7 +14,7 @@ export interface ImportInfo {
  * Represents a type declaration (class, interface, enum, annotation, module) in a Java source file.
  */
 export interface TypeInfo {
-    kind: "class" | "interface" | "enum" | "annotation" | "module";
+    kind: "class" | "interface" | "enum" | "annotation" | "module" | "record";
     name: string;
     qualifiedName: string; // without package prefix, includes enclosing types
     node: SyntaxNode;
@@ -79,16 +78,19 @@ export const parseUnit = (tree: Tree, source: string): CompilationUnit => {
                 unit.packageName = source.slice(nameNode.from, nameNode.to);
             }
         } else if (node.name === "ImportDeclaration") {
-            const isStatic = !!findChild(node, (c) => c.name === "static");
-            const isWildcard = !!findChild(node, (c) => c.name === "Asterisk");
             const nameNode = findChild(node, (c) => c.name === "Identifier" || c.name === "ScopedIdentifier");
             if (nameNode) {
                 const importedName = source.slice(nameNode.from, nameNode.to);
                 if (importedName) {
                     unit.imports.push({
+                        kind: findChild(node, (c) => c.name === "module")
+                            ? "module"
+                            : findChild(node, (c) => c.name === "static")
+                              ? "static"
+                              : findChild(node, (c) => c.name === "Asterisk")
+                                ? "wildcard"
+                                : "type",
                         importedName,
-                        isStatic,
-                        isWildcard,
                         node,
                     });
                 }
@@ -98,7 +100,8 @@ export const parseUnit = (tree: Tree, source: string): CompilationUnit => {
             node.name === "InterfaceDeclaration" ||
             node.name === "EnumDeclaration" ||
             node.name === "AnnotationTypeDeclaration" ||
-            node.name === "ModuleDeclaration"
+            node.name === "ModuleDeclaration" ||
+            node.name === "RecordDeclaration"
         ) {
             const defNode = findChild(node, (c) => c.name === "Definition" || c.name === "Identifier");
             if (defNode) {
@@ -115,7 +118,9 @@ export const parseUnit = (tree: Tree, source: string): CompilationUnit => {
                                 ? "enum"
                                 : node.name === "AnnotationTypeDeclaration"
                                   ? "annotation"
-                                  : "module",
+                                  : node.name === "ModuleDeclaration"
+                                    ? "module"
+                                    : "record",
                     name,
                     qualifiedName,
                     node,
@@ -129,7 +134,8 @@ export const parseUnit = (tree: Tree, source: string): CompilationUnit => {
                         c.name === "InterfaceBody" ||
                         c.name === "AnnotationTypeBody" ||
                         c.name === "ModuleBody" ||
-                        c.name === "EnumBody"
+                        c.name === "EnumBody" ||
+                        c.name === "RecordBody"
                 );
                 if (classBody) {
                     let child = classBody.firstChild;

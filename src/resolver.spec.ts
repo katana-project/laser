@@ -1,4 +1,4 @@
-import { parser } from "@lezer/java";
+import { parser } from "@run-slicer/lezer-java";
 import { expect } from "chai";
 import { readFileSync } from "fs";
 import { createTypeReferenceResolver } from "./resolver.js";
@@ -117,7 +117,7 @@ describe("Type Reference Resolver", () => {
 
             expect(unit.packageName).to.equal("sample.generics");
             expect(unit.imports).to.have.lengthOf(1);
-            expect(unit.imports[0].isWildcard).to.be.true;
+            expect(unit.imports[0].kind).to.equal("wildcard");
             expect(unit.imports[0].importedName).to.equal("java.util");
         });
 
@@ -170,7 +170,7 @@ describe("Type Reference Resolver", () => {
             const unit = resolver.unit;
 
             expect(unit.imports).to.have.length.greaterThan(3);
-            expect(unit.imports.every((i) => !i.isWildcard)).to.be.true;
+            expect(unit.imports.every((i) => i.kind !== "wildcard")).to.be.true;
 
             const importedNames = unit.imports.map((i) => i.importedName);
             expect(importedNames).to.include("java.io.IOException");
@@ -190,7 +190,7 @@ public class Test {
     List<Integer> numbers;
   }
 
-  public java.util.Void method() {}
+  public java.lang.Void method() {}
 }`;
         const tree = parser.parse(source);
         const unit = parseUnit(tree, source);
@@ -226,22 +226,22 @@ public class Test {
 
         it("should find type reference at fully qualified return type", () => {
             // pointing at "java" should return just "java"
-            const javaOffset = source.indexOf("java.util.Void");
+            const javaOffset = source.indexOf("java.lang.Void");
             const javaTypeRef = resolver.resolveReferenceAt(javaOffset + 1);
             expect(javaTypeRef).to.not.be.null;
             expect(javaTypeRef?.name).to.equal("java");
 
-            // pointing at "util" should return "java.util"
-            const utilOffset = source.indexOf("util.Void");
-            const utilTypeRef = resolver.resolveReferenceAt(utilOffset + 1);
-            expect(utilTypeRef).to.not.be.null;
-            expect(utilTypeRef?.name).to.equal("java.util");
+            // pointing at "lang" should return "java.lang"
+            const langOffset = source.indexOf("lang.Void");
+            const langTypeRef = resolver.resolveReferenceAt(langOffset + 1);
+            expect(langTypeRef).to.not.be.null;
+            expect(langTypeRef?.name).to.equal("java.lang");
 
-            // pointing at "Void" should return "java.util.Void"
+            // pointing at "Void" should return "java.lang.Void"
             const voidOffset = source.indexOf("Void");
             const voidTypeRef = resolver.resolveReferenceAt(voidOffset + 1);
             expect(voidTypeRef).to.not.be.null;
-            expect(voidTypeRef?.name).to.equal("java.util.Void");
+            expect(voidTypeRef?.name).to.equal("java.lang.Void");
         });
 
         it("should return null when not on a type", () => {
@@ -390,16 +390,29 @@ public class Primitives {
     describe("Interfaces", () => {
         const source = `package test;
 
+import module java.base;
+
 public interface MyInterface {
   void doSomething();
 }
 
 class Implementation implements MyInterface {
   public void doSomething() {}
+
+  public Map<String, List<Integer>> complexMethod(Map<String, List<Integer>> input) {
+    return input;
+  }
 }`;
         const tree = parser.parse(source);
         const unit = parseUnit(tree, source);
-        const resolver = createTypeReferenceResolver(unit);
+        const resolver = createTypeReferenceResolver(unit, [
+            {
+                name: "Map",
+                qualifiedName: "java.util.Map",
+                packageName: "java.util",
+                moduleName: "java.base",
+            },
+        ]);
 
         it("should resolve interface reference", () => {
             const interfaceOffset = source.indexOf("implements MyInterface");
@@ -416,6 +429,16 @@ class Implementation implements MyInterface {
 
             expect(unit.types).to.have.lengthOf(2);
             expect(unit.types[0].name).to.equal("MyInterface");
+        });
+
+        it("should find reference from module import", () => {
+            const mapOffset = source.indexOf("Map<String, List<Integer>>");
+            const resolved = resolver.resolveAt(mapOffset + 1);
+
+            expect(resolved).to.not.be.null;
+            expect(resolved?.kind).to.equal("imported");
+            expect(resolved?.name).to.equal("Map");
+            expect(resolved?.qualifiedName).to.equal("java.util.Map");
         });
     });
 
@@ -1006,4 +1029,35 @@ public class ComplexGenerics<T extends List<String>> {
             expect(declaredTypes.some((r) => r.name === "GenericListWrapper")).to.be.true;
         });
     });
+
+    /*describe("Java25Test.java - Java 25 features", () => {
+        const source = readFileSync("samples/Java25Test.java", "utf-8");
+        const tree = parser.parse(source);
+        const unit = parseUnit(tree, source);
+        const resolver = createTypeReferenceResolver(unit);
+
+        it("should print all resolved types and their offsets", () => {
+            const toLineCol = (offset: number): string => {
+                const lines = source.slice(0, offset).split("\n");
+                const line = lines.length;
+                const col = lines[lines.length - 1].length + 1;
+                return `${line}:${col}`;
+            };
+
+            const resolved = resolver.resolveAll();
+
+            console.log(`\nResolved ${resolved.length} type reference(s) in Java25Test.java:\n`);
+            for (const r of resolved) {
+                if (r.kind === "builtin") {
+                    continue;
+                }
+
+                const { from, to } = r.ref.node;
+                const snippet = source.slice(from, to);
+                console.log(`  [${toLineCol(from)}-${toLineCol(to)}] kind=${r.kind} name="${r.name}"${r.qualifiedName !== r.name ? ` qualifiedName="${r.qualifiedName}"` : ""} text="${snippet}"`);
+            }
+
+            expect(resolved.length).to.be.greaterThan(0);
+        });
+    });*/
 });

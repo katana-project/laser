@@ -1,4 +1,4 @@
-import { parser } from "@lezer/java";
+import { parser } from "@run-slicer/lezer-java";
 import { expect } from "chai";
 import { parseUnit } from "./unit.js";
 
@@ -38,8 +38,7 @@ import java.util.List;`;
 
             expect(unit.imports).to.have.lengthOf(1);
             expect(unit.imports[0].importedName).to.equal("java.util.List");
-            expect(unit.imports[0].isStatic).to.be.false;
-            expect(unit.imports[0].isWildcard).to.be.false;
+            expect(unit.imports[0].kind).to.equal("type");
         });
 
         it("should parse wildcard import", () => {
@@ -50,7 +49,7 @@ import java.util.*;`;
 
             expect(unit.imports).to.have.lengthOf(1);
             expect(unit.imports[0].importedName).to.equal("java.util");
-            expect(unit.imports[0].isWildcard).to.be.true;
+            expect(unit.imports[0].kind).to.equal("wildcard");
         });
 
         it("should parse static import", () => {
@@ -61,7 +60,7 @@ import static java.lang.Math.PI;`;
 
             expect(unit.imports).to.have.lengthOf(1);
             expect(unit.imports[0].importedName).to.equal("java.lang.Math.PI");
-            expect(unit.imports[0].isStatic).to.be.true;
+            expect(unit.imports[0].kind).to.equal("static");
         });
 
         it("should parse multiple imports", () => {
