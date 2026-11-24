@@ -1,4 +1,5 @@
 import { SyntaxNode } from "@lezer/common";
+import { findChild, findChildren, findDescendants } from "./tree-utils.js";
 import { CompilationUnit, TypeInfo } from "./unit.js";
 
 // resolving type information out of an AST is hard, so we'll focus on basic name resolution for now
@@ -29,11 +30,20 @@ export interface ExternalTypeReference extends TypeReference {
 }
 
 /**
+ * Common information returned by resolvers operating on source declarations or references.
+ */
+export interface Resolved {
+    name: string;
+    category: "type" | "declaration";
+}
+
+/**
  * Resolved type information.
  *
  * Includes whether the type is declared locally, imported, or a built-in type.
  */
-export interface ResolvedType {
+export interface ResolvedType extends Resolved {
+    category: "type";
     kind: "declared" | "imported" | "builtin";
     name: string;
     qualifiedName?: string;
@@ -120,32 +130,6 @@ const getTypeName = (node: SyntaxNode, source: string, limit: number = node.to):
     return null;
 };
 
-const collectAllTypeReferences = (
-    node: SyntaxNode,
-    source: string,
-    refs: LocalTypeReference[] = []
-): LocalTypeReference[] => {
-    const name = getTypeName(node, source);
-    if (name) {
-        const existing = refs.find((r) => r.node === node);
-        if (!existing) {
-            refs.push({
-                name,
-                node,
-            });
-        }
-    } else {
-        // enter node, as we didn't find a type reference here
-        let child = node.firstChild;
-        while (child) {
-            collectAllTypeReferences(child, source, refs);
-            child = child.nextSibling;
-        }
-    }
-
-    return refs;
-};
-
 const resolveInUnit = (typeName: string, unit: CompilationUnit): TypeInfo | null => {
     for (const cls of unit.types) {
         if (
@@ -172,6 +156,7 @@ const resolveImported = (
             (imp.importedName === typeRef.name || imp.importedName.endsWith(`.${typeRef.name}`))
         ) {
             return {
+                category: "type",
                 kind: "imported",
                 name: typeRef.name,
                 qualifiedName: imp.importedName,
@@ -188,6 +173,7 @@ const resolveImported = (
             );
             if (matchingExternal) {
                 return {
+                    category: "type",
                     kind: "imported",
                     name: typeRef.name,
                     qualifiedName: matchingExternal.qualifiedName,
@@ -207,6 +193,7 @@ const resolveImported = (
             );
             if (matchingExternal) {
                 return {
+                    category: "type",
                     kind: "imported",
                     name: typeRef.name,
                     qualifiedName: matchingExternal.qualifiedName,
@@ -227,6 +214,7 @@ const resolveImported = (
 
     if (matchingExternal) {
         return {
+            category: "type",
             kind: "imported",
             name: typeRef.name,
             qualifiedName: matchingExternal.qualifiedName,
@@ -259,6 +247,7 @@ export const resolveTypeReference = (
 
     if (BUILTIN_TYPES.has(typeName)) {
         return {
+            category: "type",
             kind: "builtin",
             name: typeName,
             ref: typeRef,
@@ -269,6 +258,7 @@ export const resolveTypeReference = (
     const externalMatch = externalRefs.find((ext) => ext.qualifiedName === typeName);
     if (externalMatch) {
         return {
+            category: "type",
             kind: "imported",
             name: typeName,
             qualifiedName: externalMatch.qualifiedName,
@@ -279,6 +269,7 @@ export const resolveTypeReference = (
     const localResolved = resolveInUnit(typeName, unit);
     if (localResolved) {
         return {
+            category: "type",
             kind: "declared",
             name: typeName.includes(".") ? typeName : localResolved.qualifiedName,
             qualifiedName: (unit.packageName ? `${unit.packageName}.` : "") + localResolved.qualifiedName,
@@ -298,8 +289,7 @@ export const resolveTypeReference = (
 /**
  * Type reference resolver for a compilation unit.
  *
- * Provides methods to resolve type references at specific offsets,
- * as well as resolving all type references in the unit.
+ * Provides methods to resolve type references at specific offsets.
  */
 export interface TypeReferenceResolver {
     /** The compilation unit being analyzed. */
@@ -326,13 +316,6 @@ export interface TypeReferenceResolver {
      * @returns LocalTypeReference or null
      */
     resolveReferenceAt(offset: number, side?: -1 | 0 | 1): LocalTypeReference | null;
-
-    /**
-     * Resolves all type references in the compilation unit.
-     *
-     * @returns An array of resolved type information for all references.
-     */
-    resolveAll(): ResolvedType[];
 }
 
 /**
@@ -379,10 +362,441 @@ export const createTypeReferenceResolver = (
 
             return null;
         },
+    };
+};
 
-        resolveAll() {
-            const allRefs = collectAllTypeReferences(unit.tree.topNode, unit.source);
-            return allRefs.map((ref) => resolveTypeReference(ref, unit, refs)).filter(Boolean);
+export type DeclarationKind = "field" | "constant" | "method" | "constructor" | "staticInitializer";
+
+/**
+ * JVM-style information for a field or method declaration.
+ */
+export interface ResolvedDeclaration extends Resolved {
+    category: "declaration";
+    kind: DeclarationKind;
+    name: string;
+    descriptor: string;
+    owner: string;
+    node: SyntaxNode;
+    declaration: SyntaxNode;
+}
+
+export interface DeclarationResolver {
+    unit: CompilationUnit;
+    resolveAt(offset: number, side?: -1 | 0 | 1): ResolvedDeclaration | null;
+}
+
+const DECLARATION_NAMES = new Set([
+    "FieldDeclaration",
+    "ConstantDeclaration",
+    "EnumConstant",
+    "MethodDeclaration",
+    "ConstructorDeclaration",
+    "CompactConstructorDeclaration",
+    "StaticInitializer",
+]);
+
+const findDeclarationAncestor = (node: SyntaxNode): SyntaxNode | null => {
+    let current: SyntaxNode | null = node;
+    while (current) {
+        if (DECLARATION_NAMES.has(current.name)) return current;
+        current = current.parent;
+    }
+    return null;
+};
+
+const findOwnerNode = (declaration: SyntaxNode): SyntaxNode | null => {
+    let current = declaration.parent;
+    while (current) {
+        if (
+            current.name === "ClassDeclaration" ||
+            current.name === "InterfaceDeclaration" ||
+            current.name === "EnumDeclaration" ||
+            current.name === "AnnotationTypeDeclaration" ||
+            current.name === "RecordDeclaration" ||
+            current.name === "ModuleDeclaration"
+        ) {
+            return current;
+        }
+        current = current.parent;
+    }
+    return null;
+};
+
+const primitiveDescriptors: Record<string, string> = {
+    byte: "B",
+    char: "C",
+    double: "D",
+    float: "F",
+    int: "I",
+    long: "J",
+    short: "S",
+    boolean: "Z",
+    void: "V",
+};
+
+const TYPE_NODE_NAMES = new Set(["PrimitiveType", "void", "TypeName", "ScopedTypeName", "GenericType", "ArrayType"]);
+
+const isTypeNode = (node: SyntaxNode): boolean => TYPE_NODE_NAMES.has(node.name);
+
+const findDirectTypeNode = (node: SyntaxNode): SyntaxNode | null => {
+    let child = node.firstChild;
+    while (child) {
+        if (isTypeNode(child)) return child;
+        child = child.nextSibling;
+    }
+    return null;
+};
+
+const findDefinition = (node: SyntaxNode): SyntaxNode | null => findChild(node, (child) => child.name === "Definition");
+
+const findDescendantDefinition = (node: SyntaxNode): SyntaxNode | null =>
+    findDescendants(node, (child) => child.name === "Definition")[0] ?? null;
+
+const getOwnerName = (unit: CompilationUnit, ownerNode: SyntaxNode): string => {
+    const type = unit.types.find(
+        (candidate) =>
+            candidate.node.from === ownerNode.from &&
+            candidate.node.to === ownerNode.to &&
+            candidate.node.name === ownerNode.name
+    );
+    if (!type) return "";
+
+    const packagePrefix = unit.packageName ? `${unit.packageName.replace(/\./g, "/")}/` : "";
+    return packagePrefix + type.qualifiedName.replace(/\./g, "$").replace(/\//g, "/");
+};
+
+const findTypeParameterBound = (name: string, context: SyntaxNode | null, source: string): SyntaxNode | null => {
+    let current = context;
+    while (current) {
+        for (const parameter of findDescendants(current, (node) => node.name === "TypeParameter")) {
+            const definition = findDefinition(parameter);
+            if (!definition || source.slice(definition.from, definition.to) !== name) continue;
+
+            const typeBound = findChild(parameter, (node) => node.name === "TypeBound");
+            if (typeBound) {
+                const bound = findChild(typeBound, (node) => isTypeNode(node));
+                if (bound) return bound;
+            }
+        }
+        current = current.parent;
+    }
+    return null;
+};
+
+const getUnqualifiedDescriptorName = (
+    unit: CompilationUnit,
+    name: string,
+    externalRefs: ExternalTypeReference[],
+    context: SyntaxNode | null = null,
+    visited: Set<string> = new Set()
+): string => {
+    const exactExternal = externalRefs.find((external) => external.qualifiedName === name);
+    if (exactExternal) {
+        return exactExternal.qualifiedName.replace(/\./g, "/");
+    }
+
+    const javaLangExternal = externalRefs.find(
+        (external) => external.packageName === "java.lang" && external.name === name
+    );
+    if (javaLangExternal) {
+        return javaLangExternal.qualifiedName.replace(/\./g, "/");
+    }
+
+    for (const imp of unit.imports) {
+        if (imp.kind === "type" && (imp.importedName === name || imp.importedName.endsWith(`.${name}`))) {
+            return imp.importedName.replace(/\./g, "/");
+        }
+    }
+
+    const local = unit.types.find((type) => type.name === name);
+    if (local) {
+        return getOwnerName(unit, local.node);
+    }
+
+    if (!visited.has(name)) {
+        const bound = findTypeParameterBound(name, context, unit.source);
+        if (bound) {
+            const nextVisited = new Set(visited);
+            nextVisited.add(name);
+            return getDescriptorType(bound, unit, unit.source, externalRefs, context, nextVisited).replace(
+                /^L|;$/g,
+                ""
+            );
+        }
+    }
+
+    if (context) {
+        if (name.includes(".") || name.includes("/")) {
+            return name.replace(/\./g, "/");
+        }
+        return "java/lang/Object";
+    }
+
+    return name.replace(/\./g, "/");
+};
+
+const getDescriptorType = (
+    node: SyntaxNode | null,
+    unit: CompilationUnit,
+    source: string,
+    externalRefs: ExternalTypeReference[],
+    context: SyntaxNode | null = null,
+    visited: Set<string> = new Set()
+): string => {
+    if (!node) return "V";
+
+    if (node.name === "ArrayType") {
+        let dimensions = 0;
+        let child = node.firstChild;
+        while (child) {
+            if (child.name === "Dimension") dimensions++;
+            child = child.nextSibling;
+        }
+        const base = node.firstChild;
+        return "[".repeat(dimensions) + getDescriptorType(base, unit, source, externalRefs, context, visited);
+    }
+
+    if (node.name === "SpreadParameter") {
+        const type = node.firstChild;
+        return "[" + getDescriptorType(type, unit, source, externalRefs, context, visited);
+    }
+
+    if (node.name === "GenericType") {
+        const base =
+            node.firstChild?.name === "TypeName" || node.firstChild?.name === "ScopedTypeName" ? node.firstChild : null;
+        return getDescriptorType(base, unit, source, externalRefs, context, visited);
+    }
+
+    if (
+        node.name === "TypeName" ||
+        node.name === "ScopedTypeName" ||
+        node.name === "PrimitiveType" ||
+        node.name === "void"
+    ) {
+        const name = getTypeName(node, source) ?? source.slice(node.from, node.to);
+        if (primitiveDescriptors[name]) return primitiveDescriptors[name];
+        const genericIndex = name.indexOf("<");
+        const unqualifiedName = genericIndex >= 0 ? name.slice(0, genericIndex) : name;
+        return `L${getUnqualifiedDescriptorName(unit, unqualifiedName, externalRefs, context, visited)};`;
+    }
+
+    let child = node.firstChild;
+    while (child) {
+        const descriptor = getDescriptorType(child, unit, source, externalRefs, context, visited);
+        if (descriptor !== "V") return descriptor;
+        child = child.nextSibling;
+    }
+    return "V";
+};
+
+const getFieldNameAndType = (
+    declaration: SyntaxNode,
+    unit: CompilationUnit,
+    source: string,
+    externalRefs: ExternalTypeReference[]
+): ResolvedDeclaration[] => {
+    const typeNode = findDirectTypeNode(declaration);
+
+    const ownerNode = findOwnerNode(declaration);
+    const owner = ownerNode ? getOwnerName(unit, ownerNode) : "";
+    const descriptor = getDescriptorType(typeNode, unit, source, externalRefs, declaration);
+    const result: ResolvedDeclaration[] = [];
+
+    for (const variable of findChildren(declaration, (node) => node.name === "VariableDeclarator")) {
+        const definition = findDefinition(variable);
+        if (definition) {
+            result.push({
+                category: "declaration",
+                kind: "field",
+                name: source.slice(definition.from, definition.to),
+                descriptor,
+                owner,
+                node: definition,
+                declaration,
+            });
+        }
+    }
+    return result;
+};
+
+const getParameterType = (parameter: SyntaxNode): SyntaxNode | null => {
+    return parameter.name === "SpreadParameter" ? parameter : findDirectTypeNode(parameter);
+};
+
+const resolveDeclarationInfo = (
+    declaration: SyntaxNode,
+    unit: CompilationUnit,
+    externalRefs: ExternalTypeReference[]
+): ResolvedDeclaration | null => {
+    const ownerNode = findOwnerNode(declaration);
+    const owner = ownerNode ? getOwnerName(unit, ownerNode) : "";
+
+    if (declaration.name === "StaticInitializer") {
+        return {
+            category: "declaration",
+            kind: "staticInitializer",
+            name: "<clinit>",
+            descriptor: "()V",
+            owner,
+            node: declaration,
+            declaration,
+        };
+    }
+
+    if (declaration.name === "ConstantDeclaration") {
+        const typeNode = findDirectTypeNode(declaration);
+        const variable = findChild(declaration, (node) => node.name === "VariableDeclarator");
+        const definition = variable ? findDefinition(variable) : null;
+        if (!definition) return null;
+
+        return {
+            category: "declaration",
+            kind: "constant",
+            name: unit.source.slice(definition.from, definition.to),
+            descriptor: getDescriptorType(typeNode, unit, unit.source, externalRefs, declaration),
+            owner,
+            node: definition,
+            declaration,
+        };
+    }
+
+    if (declaration.name === "EnumConstant") {
+        const definition = findDescendantDefinition(declaration);
+        if (!definition) return null;
+
+        return {
+            category: "declaration",
+            kind: "constant",
+            name: unit.source.slice(definition.from, definition.to),
+            descriptor: declaration.name === "EnumConstant" && owner ? `L${owner};` : "V",
+            owner,
+            node: definition,
+            declaration,
+        };
+    }
+
+    if (declaration.name === "FieldDeclaration") {
+        return getFieldNameAndType(declaration, unit, unit.source, externalRefs)[0] ?? null;
+    }
+
+    const definition = findDefinition(declaration);
+    if (!definition) return null;
+
+    const isConstructor =
+        declaration.name === "ConstructorDeclaration" || declaration.name === "CompactConstructorDeclaration";
+
+    const name = isConstructor ? "<init>" : unit.source.slice(definition.from, definition.to);
+
+    const parameters = findChild(declaration, (node) => node.name === "FormalParameters");
+
+    const parameterDescriptors: string[] = [];
+    if (declaration.name === "CompactConstructorDeclaration" && ownerNode) {
+        const recordHeader = findChild(ownerNode, (node) => node.name === "RecordHeader");
+        if (recordHeader) {
+            for (const component of findChildren(recordHeader, (node) => node.name === "RecordComponent")) {
+                const typeNode = findDirectTypeNode(component);
+                parameterDescriptors.push(getDescriptorType(typeNode, unit, unit.source, externalRefs, declaration));
+            }
+        }
+    } else if (parameters) {
+        let parameter = parameters.firstChild;
+        while (parameter) {
+            if (parameter.name === "FormalParameter" || parameter.name === "SpreadParameter") {
+                const typeNode = parameter.name === "SpreadParameter" ? parameter : getParameterType(parameter);
+                parameterDescriptors.push(getDescriptorType(typeNode, unit, unit.source, externalRefs, declaration));
+            }
+            parameter = parameter.nextSibling;
+        }
+    }
+
+    let returnDescriptor = "V";
+    if (declaration.name === "MethodDeclaration") {
+        const returnType = findDirectTypeNode(declaration);
+        returnDescriptor = getDescriptorType(returnType, unit, unit.source, externalRefs, declaration);
+    }
+
+    return {
+        category: "declaration",
+        kind: isConstructor ? "constructor" : "method",
+        name,
+        descriptor: `(${parameterDescriptors.join("")})${returnDescriptor}`,
+        owner,
+        node: definition,
+        declaration,
+    };
+};
+
+const declarationAtNode = (
+    unit: CompilationUnit,
+    offset: number,
+    side: -1 | 0 | 1,
+    externalRefs: ExternalTypeReference[]
+): ResolvedDeclaration | null => {
+    let resolvedNode = unit.tree.resolveInner(offset, side);
+    let declaration = findDeclarationAncestor(resolvedNode);
+    if (!declaration) {
+        let nearest: SyntaxNode | null = null;
+        const findContainingDeclaration = (node: SyntaxNode) => {
+            if (DECLARATION_NAMES.has(node.name) && node.from <= offset && offset <= node.to) {
+                if (!nearest || node.to - node.from < nearest.to - nearest.from) nearest = node;
+            }
+            let child = node.firstChild;
+            while (child) {
+                findContainingDeclaration(child);
+                child = child.nextSibling;
+            }
+        };
+        findContainingDeclaration(unit.tree.topNode);
+        declaration = nearest;
+    }
+    if (!declaration) return null;
+
+    if (declaration.name === "FieldDeclaration") {
+        const fields = getFieldNameAndType(declaration, unit, unit.source, externalRefs);
+        const containing = fields.find((field) => field.node.from <= offset && offset <= field.node.to);
+        return containing ?? null;
+    }
+
+    return resolveDeclarationInfo(declaration, unit, externalRefs);
+};
+
+/**
+ * Creates a resolver for field and method declarations in a compilation unit.
+ */
+export const createDeclarationResolver = (
+    unit: CompilationUnit,
+    refs: ExternalTypeReference[] = []
+): DeclarationResolver => {
+    return {
+        unit,
+        resolveAt(offset, side = 0) {
+            return declarationAtNode(unit, offset, side, refs);
+        },
+    };
+};
+
+/**
+ * A resolver that returns either resolved type or declaration information.
+ */
+export interface CompositeResolver {
+    unit: CompilationUnit;
+    resolveAt(offset: number, side?: -1 | 0 | 1): Resolved | null;
+}
+
+/**
+ * Creates a composite resolver that checks declarations before type references.
+ */
+export const createCompositeResolver = (
+    unit: CompilationUnit,
+    refs: ExternalTypeReference[] = []
+): CompositeResolver => {
+    const declarationResolver = createDeclarationResolver(unit, refs);
+    const typeResolver = createTypeReferenceResolver(unit, refs);
+
+    return {
+        unit,
+        resolveAt(offset, side = 0) {
+            return declarationResolver.resolveAt(offset, side) ?? typeResolver.resolveAt(offset, side);
         },
     };
 };

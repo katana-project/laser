@@ -1,7 +1,7 @@
 import { parser } from "@run-slicer/lezer-java";
 import { expect } from "chai";
 import { readFileSync } from "fs";
-import { createTypeReferenceResolver } from "./resolver.js";
+import { createCompositeResolver, createDeclarationResolver, createTypeReferenceResolver } from "./resolver.js";
 import { parseUnit } from "./unit";
 
 describe("Type Reference Resolver", () => {
@@ -774,290 +774,412 @@ public class AnnotatedWithArrays {
             expect(unit.types[0].name).to.equal("BinarySearch");
         });
 
-        it("should resolve all type references", () => {
-            const resolved = resolver.resolveAll();
-
-            expect(resolved.length).to.be.greaterThan(0);
-
-            const intRefs = resolved.filter((r) => r.name === "int");
-            expect(intRefs.length).to.be.greaterThan(0);
-            expect(intRefs.every((r) => r.kind === "builtin")).to.be.true;
-
-            const stringRefs = resolved.filter((r) => r.name === "String");
-            expect(stringRefs).to.have.lengthOf(0);
-
-            const bsRefs = resolved.filter((r) => r.name === "BinarySearch");
-            expect(bsRefs.length).to.be.greaterThan(0);
-            expect(bsRefs.every((r) => r.kind === "declared")).to.be.true;
-        });
     });
 
-    describe("resolveAll", () => {
-        it("should resolve all type references in a simple class", () => {
-            const source = `package test;
+    describe("Declaration Resolver", () => {
+        const source = `package com.test;
+class Example {
+  int age, score;
+  String[] names;
+  void run(int count, String... values) {}
+  Example() {}
+}`;
+        const unit = parseUnit(parser.parse(source), source);
+        const externalRefs = [
+            {
+                name: "String",
+                qualifiedName: "java.lang.String",
+                packageName: "java.lang",
+                moduleName: null,
+            },
+        ];
+        const resolver = createDeclarationResolver(unit, externalRefs);
+        const composite = createCompositeResolver(unit, externalRefs);
 
-import java.lang.String;
+        it("should resolve declarations through a composite resolver", () => {
+            const offset = source.indexOf("run") + 1;
+            const resolved = composite.resolveAt(offset);
 
-public class Simple {
-  private String name;
-  private int count;
+            expect(resolved?.name).to.equal("run");
+            expect(resolved?.category).to.equal("declaration");
+        });
 
-  public String getName() {
-    return name;
+        it("should resolve types through a composite resolver", () => {
+            const offset = source.indexOf("int age") + 1;
+            const resolved = composite.resolveAt(offset);
+
+            expect(resolved?.name).to.equal("int");
+            expect(resolved?.category).to.equal("type");
+        });
+
+        it("should resolve field name, descriptor, and owner", () => {
+            const offset = source.indexOf("int age") + "int ".length + 1;
+            const resolved = resolver.resolveAt(offset);
+
+            expect(resolved?.kind).to.equal("field");
+            expect(resolved?.name).to.equal("age");
+            expect(resolved?.descriptor).to.equal("I");
+            expect(resolved?.owner).to.equal("com/test/Example");
+        });
+
+        it("should resolve array field descriptors", () => {
+            const offset = source.indexOf("names") + 1;
+            const resolved = resolver.resolveAt(offset);
+
+            expect(resolved?.name).to.equal("names");
+            expect(resolved?.descriptor).to.equal("[Ljava/lang/String;");
+            expect(resolved?.owner).to.equal("com/test/Example");
+        });
+
+        it("should resolve method descriptors", () => {
+            const offset = source.indexOf("run") + 1;
+            const resolved = resolver.resolveAt(offset);
+
+            expect(resolved?.kind).to.equal("method");
+            expect(resolved?.name).to.equal("run");
+            expect(resolved?.descriptor).to.equal("(I[Ljava/lang/String;)V");
+            expect(resolved?.owner).to.equal("com/test/Example");
+        });
+
+        it("should resolve constructors", () => {
+            const offset = source.indexOf("Example()") + 1;
+            const resolved = resolver.resolveAt(offset);
+
+            expect(resolved?.kind).to.equal("constructor");
+            expect(resolved?.name).to.equal("<init>");
+            expect(resolved?.descriptor).to.equal("()V");
+            expect(resolved?.owner).to.equal("com/test/Example");
+        });
+
+        it("should resolve static initializers", () => {
+            const initializerSource = `package com.test;
+class Example { static { int value = 1; } }`;
+            const initializerUnit = parseUnit(parser.parse(initializerSource), initializerSource);
+            const initializerResolver = createDeclarationResolver(initializerUnit);
+            const resolved = initializerResolver.resolveAt(initializerSource.indexOf("static") + 1);
+
+            expect(resolved?.kind).to.equal("staticInitializer");
+            expect(resolved?.name).to.equal("<clinit>");
+            expect(resolved?.descriptor).to.equal("()V");
+            expect(resolved?.owner).to.equal("com/test/Example");
+        });
+
+        it("should resolve enum constants", () => {
+            const enumSource = `package com.test;
+enum Choice { FIRST, SECOND }`;
+            const enumUnit = parseUnit(parser.parse(enumSource), enumSource);
+            const enumResolver = createDeclarationResolver(enumUnit);
+            const resolved = enumResolver.resolveAt(enumSource.indexOf("SECOND") + 1);
+
+            expect(resolved?.kind).to.equal("constant");
+            expect(resolved?.name).to.equal("SECOND");
+            expect(resolved?.descriptor).to.equal("Lcom/test/Choice;");
+            expect(resolved?.owner).to.equal("com/test/Choice");
+        });
+
+        it("should resolve compact record constructors", () => {
+            const recordSource = `package com.test;
+record Pair(int x, String y) { Pair { } }`;
+            const recordUnit = parseUnit(parser.parse(recordSource), recordSource);
+            const recordResolver = createDeclarationResolver(recordUnit, [
+                {
+                    name: "String",
+                    qualifiedName: "java.lang.String",
+                    packageName: "java.lang",
+                    moduleName: null,
+                },
+            ]);
+            const resolved = recordResolver.resolveAt(recordSource.indexOf("Pair {") + 1);
+
+            expect(resolved?.kind).to.equal("constructor");
+            expect(resolved?.name).to.equal("<init>");
+            expect(resolved?.descriptor).to.equal("(ILjava/lang/String;)V");
+            expect(resolved?.owner).to.equal("com/test/Pair");
+        });
+
+        it("should erase generic field types in descriptors", () => {
+            const genericSource = `package com.test;
+class Box<T> {
+  java.util.List<T> items;
+  T value;
+}`;
+            const genericUnit = parseUnit(parser.parse(genericSource), genericSource);
+            const genericResolver = createDeclarationResolver(genericUnit);
+
+            const listOffset = genericSource.indexOf("items") + 1;
+            const listResolved = genericResolver.resolveAt(listOffset);
+            expect(listResolved?.kind).to.equal("field");
+            expect(listResolved?.name).to.equal("items");
+            expect(listResolved?.descriptor).to.equal("Ljava/util/List;");
+
+            const typeOffset = genericSource.indexOf("value") + 1;
+            const typeResolved = genericResolver.resolveAt(typeOffset);
+            expect(typeResolved?.kind).to.equal("field");
+            expect(typeResolved?.name).to.equal("value");
+            expect(typeResolved?.descriptor).to.equal("Ljava/lang/Object;");
+        });
+
+        it("should resolve generic method parameters and erased return types", () => {
+            const genericSource = `package com.test;
+class Box<T> {
+  <U extends T> java.util.List<U> transform(java.util.List<? extends T> input, T fallback) {}
+}`;
+            const genericUnit = parseUnit(parser.parse(genericSource), genericSource);
+            const genericResolver = createDeclarationResolver(genericUnit);
+            const resolved = genericResolver.resolveAt(genericSource.indexOf("transform") + 1);
+
+            expect(resolved?.kind).to.equal("method");
+            expect(resolved?.name).to.equal("transform");
+            expect(resolved?.descriptor).to.equal("(Ljava/util/List;Ljava/lang/Object;)Ljava/util/List;");
+            expect(resolved?.owner).to.equal("com/test/Box");
+        });
+
+        it("should resolve nested class field and constructor owners", () => {
+            const nestedSource = `package com.test;
+class Outer {
+  class Inner {
+    String name;
+    Inner(String name) {}
   }
 }`;
-            const tree = parser.parse(source);
-            const unit = parseUnit(tree, source);
-            const resolver = createTypeReferenceResolver(unit);
+            const nestedUnit = parseUnit(parser.parse(nestedSource), nestedSource);
+            const nestedResolver = createDeclarationResolver(nestedUnit, [
+                {
+                    name: "String",
+                    qualifiedName: "java.lang.String",
+                    packageName: "java.lang",
+                    moduleName: null,
+                },
+            ]);
 
-            const resolved = resolver.resolveAll();
+            const fieldResolved = nestedResolver.resolveAt(nestedSource.indexOf("name") + 1);
+            expect(fieldResolved?.kind).to.equal("field");
+            expect(fieldResolved?.name).to.equal("name");
+            expect(fieldResolved?.descriptor).to.equal("Ljava/lang/String;");
+            expect(fieldResolved?.owner).to.equal("com/test/Outer$Inner");
 
-            expect(resolved.length).to.be.greaterThan(0);
-
-            const stringRefs = resolved.filter((r) => r.name === "String");
-            expect(stringRefs).to.have.lengthOf(2);
-
-            const intRefs = resolved.filter((r) => r.name === "int");
-            expect(intRefs).to.have.lengthOf(1);
-            expect(intRefs[0].kind).to.equal("builtin");
+            const constructorResolved = nestedResolver.resolveAt(nestedSource.indexOf("Inner(String") + 1);
+            expect(constructorResolved?.kind).to.equal("constructor");
+            expect(constructorResolved?.name).to.equal("<init>");
+            expect(constructorResolved?.descriptor).to.equal("(Ljava/lang/String;)V");
+            expect(constructorResolved?.owner).to.equal("com/test/Outer$Inner");
         });
 
-        it("should resolve all type references including generics", () => {
-            const source = `package test;
-import java.util.List;
-import java.util.Map;
-import java.lang.String;
-
-public class GenericTest {
-  private List<String> items;
-  private Map<Integer, String> map;
-}`;
-            const tree = parser.parse(source);
-            const unit = parseUnit(tree, source);
-            const resolver = createTypeReferenceResolver(unit);
-
-            const resolved = resolver.resolveAll();
-
-            const listRefs = resolved.filter((r) => r.name === "List");
-            expect(listRefs.length).to.be.greaterThan(0);
-            expect(listRefs[0].kind).to.equal("imported");
-
-            const mapRefs = resolved.filter((r) => r.name === "Map");
-            expect(mapRefs.length).to.be.greaterThan(0);
-            expect(mapRefs[0].kind).to.equal("imported");
-
-            const stringRefs = resolved.filter((r) => r.name === "String");
-            expect(stringRefs).to.have.lengthOf(2);
-
-            const integerRefs = resolved.filter((r) => r.name === "Integer");
-            expect(integerRefs).to.have.lengthOf(0);
-        });
-
-        it("should resolve all type references with inheritance", () => {
-            const source = `package test;
-
-interface Base {}
-interface Another {}
-
-class Parent implements Base {}
-
-class Child extends Parent implements Another {
-  private Base field;
-}`;
-            const tree = parser.parse(source);
-            const unit = parseUnit(tree, source);
-            const resolver = createTypeReferenceResolver(unit);
-
-            const resolved = resolver.resolveAll();
-
-            const baseRefs = resolved.filter((r) => r.name === "Base");
-            expect(baseRefs.length).to.be.greaterThan(1);
-            expect(baseRefs.every((r) => r.kind === "declared")).to.be.true;
-
-            const anotherRefs = resolved.filter((r) => r.name === "Another");
-            expect(anotherRefs.length).to.be.greaterThan(0);
-            expect(anotherRefs[0].kind).to.equal("declared");
-
-            const parentRefs = resolved.filter((r) => r.name === "Parent");
-            expect(parentRefs.length).to.be.greaterThan(0);
-            expect(parentRefs[0].kind).to.equal("declared");
-        });
-
-        it("should resolve all type references with annotations", () => {
-            const source = `package test;
-
-import java.lang.Override;
-import java.lang.Deprecated;
-import java.lang.String;
-
-@Deprecated
-public class AnnotatedClass {
-  @Override
-  public String toString() {
-    return "";
-  }
-}`;
-            const tree = parser.parse(source);
-            const unit = parseUnit(tree, source);
-            const resolver = createTypeReferenceResolver(unit);
-
-            const resolved = resolver.resolveAll();
-
-            const overrideRefs = resolved.filter((r) => r.name === "Override");
-            expect(overrideRefs).to.have.lengthOf(1);
-            expect(overrideRefs[0].kind).to.equal("imported");
-
-            const deprecatedRefs = resolved.filter((r) => r.name === "Deprecated");
-            expect(deprecatedRefs).to.have.lengthOf(1);
-            expect(deprecatedRefs[0].kind).to.equal("imported");
-
-            const stringRefs = resolved.filter((r) => r.name === "String");
-            expect(stringRefs).to.have.lengthOf(1);
-        });
-
-        it("should resolve all type references with local classes", () => {
-            const source = `package test;
-
-import java.lang.String;
-
-public class Outer {
-  public void method() {
-    class Local {
-      private String value;
+        it("should resolve declarations in deeply nested classes", () => {
+            const nestedSource = `package com.test;
+class Outer {
+  class Middle {
+    class Inner {
+      int value;
     }
-
-    Local local = new Local();
   }
 }`;
-            const tree = parser.parse(source);
-            const unit = parseUnit(tree, source);
-            const resolver = createTypeReferenceResolver(unit);
+            const nestedUnit = parseUnit(parser.parse(nestedSource), nestedSource);
+            const nestedResolver = createDeclarationResolver(nestedUnit);
+            const resolved = nestedResolver.resolveAt(nestedSource.indexOf("value") + 1);
 
-            const resolved = resolver.resolveAll();
-
-            const localRefs = resolved.filter((r) => r.name === "Outer.Local");
-            expect(localRefs.length).to.be.greaterThan(1);
-            expect(localRefs.every((r) => r.kind === "declared")).to.be.true;
-
-            const stringRefs = resolved.filter((r) => r.name === "String");
-            expect(stringRefs).to.have.lengthOf(1);
+            expect(resolved?.kind).to.equal("field");
+            expect(resolved?.name).to.equal("value");
+            expect(resolved?.descriptor).to.equal("I");
+            expect(resolved?.owner).to.equal("com/test/Outer$Middle$Inner");
         });
 
-        it("should resolve all type references from real file", () => {
-            const source = readFileSync("samples/sample/inheritance/Linear.java", "utf-8");
-            const tree = parser.parse(source);
-            const unit = parseUnit(tree, source);
-            const resolver = createTypeReferenceResolver(unit);
+        it("should resolve declarations from ByteBuddy.java", () => {
+            const source = readFileSync("samples/ByteBuddy.java", "utf-8");
+            const unit = parseUnit(parser.parse(source), source);
+            const resolver = createDeclarationResolver(unit, [
+                {
+                    name: "String",
+                    qualifiedName: "java.lang.String",
+                    packageName: "java.lang",
+                    moduleName: null,
+                },
+                {
+                    name: "List",
+                    qualifiedName: "java.util.List",
+                    packageName: "java.util",
+                    moduleName: null,
+                },
+                {
+                    name: "TypeValidation",
+                    qualifiedName: "net.bytebuddy.dynamic.scaffold.TypeValidation",
+                    packageName: "net.bytebuddy.dynamic.scaffold",
+                    moduleName: null,
+                },
+                {
+                    name: "TypeDescription",
+                    qualifiedName: "net.bytebuddy.description.type.TypeDescription",
+                    packageName: "net.bytebuddy.description.type",
+                    moduleName: null,
+                },
+            ]);
 
-            const resolved = resolver.resolveAll();
+            const fieldOffset = source.indexOf("DEFAULT_TYPE_VALIDATION") + 1;
+            const field = resolver.resolveAt(fieldOffset);
+            expect(field?.kind).to.equal("field");
+            expect(field?.name).to.equal("DEFAULT_TYPE_VALIDATION");
+            expect(field?.descriptor).to.equal(
+                "Lnet/bytebuddy/dynamic/scaffold/TypeValidation;"
+            );
+            expect(field?.owner).to.equal("net/bytebuddy/ByteBuddy");
 
-            expect(resolved.length).to.be.greaterThan(0);
+            const initializer = resolver.resolveAt(source.indexOf("static {") + 1);
+            expect(initializer?.kind).to.equal("staticInitializer");
+            expect(initializer?.name).to.equal("<clinit>");
+            expect(initializer?.descriptor).to.equal("()V");
+            expect(initializer?.owner).to.equal("net/bytebuddy/ByteBuddy");
 
-            const declaredTypes = resolved.filter((r) => r.kind === "declared");
-            expect(declaredTypes.length).to.be.greaterThan(0);
+            const constructor = resolver.resolveAt(source.indexOf("public ByteBuddy()") + "public ".length + 1);
+            expect(constructor?.kind).to.equal("constructor");
+            expect(constructor?.name).to.equal("<init>");
+            expect(constructor?.descriptor).to.equal("()V");
+            expect(constructor?.owner).to.equal("net/bytebuddy/ByteBuddy");
 
-            const builtinTypes = resolved.filter((r) => r.kind === "builtin");
-            expect(builtinTypes.length).to.be.greaterThan(0);
+            const method = resolver.resolveAt(source.indexOf("extractConstructors") + 1);
+            expect(method?.kind).to.equal("method");
+            expect(method?.name).to.equal("extractConstructors");
+            expect(method?.descriptor).to.equal(
+                "(Lnet/bytebuddy/description/type/TypeDescription;)Ljava/util/List;"
+            );
+            expect(method?.owner).to.equal(
+                "net/bytebuddy/ByteBuddy$RecordConstructorStrategy"
+            );
         });
 
-        it("should not duplicate type references", () => {
-            const source = `package test;
+        it("should resolve declarations from Java25Test.java", () => {
+            const source = readFileSync("samples/Java25Test.java", "utf-8");
+            const unit = parseUnit(parser.parse(source), source);
+            const resolver = createDeclarationResolver(unit, [
+                {
+                    name: "String",
+                    qualifiedName: "java.lang.String",
+                    packageName: "java.lang",
+                    moduleName: null,
+                },
+                {
+                    name: "ScopedValue",
+                    qualifiedName: "java.lang.ScopedValue",
+                    packageName: "java.lang",
+                    moduleName: null,
+                },
+            ]);
 
-import java.lang.String;
+            const constructor = resolver.resolveAt(
+                source.indexOf("FlexibleConnection(String") + "FlexibleConnection(".length + 1
+            );
+            expect(constructor?.kind).to.equal("constructor");
+            expect(constructor?.name).to.equal("<init>");
+            expect(constructor?.descriptor).to.equal("(Ljava/lang/String;)V");
+            expect(constructor?.owner).to.equal("test/FlexibleConnection");
 
-public class Test {
-  private String a;
-  private String b;
-  private String c;
-}`;
-            const tree = parser.parse(source);
-            const unit = parseUnit(tree, source);
-            const resolver = createTypeReferenceResolver(unit);
-
-            const resolved = resolver.resolveAll();
-            const stringRefs = resolved.filter((r) => r.name === "String");
-
-            expect(stringRefs).to.have.lengthOf(3);
-
-            const uniquePositions = new Set(stringRefs.map((r) => r.ref.node.from));
-            expect(uniquePositions.size).to.equal(3);
+            const baseConstructor = resolver.resolveAt(source.indexOf("BaseConnection()") + 1);
+            expect(baseConstructor?.kind).to.equal("constructor");
+            expect(baseConstructor?.name).to.equal("<init>");
+            expect(baseConstructor?.descriptor).to.equal("()V");
+            expect(baseConstructor?.owner).to.equal("test/BaseConnection");
         });
 
-        it("should resolve all types in complex generic scenarios", () => {
-            const source = `package test;
+        it("should resolve all declaration kinds together without conflicts", () => {
+            const complexSource = `package com.test;
+
 import java.util.List;
-import java.util.Map;
-import java.lang.String;
 
-public class ComplexGenerics<T extends List<String>> {
-  private Map<String, List<T>> data;
+class Complex<T> {
+  static int counter;
+  List<String> items;
+  T value;
 
-  public T get(String key) {
-    return null;
+  static { counter = 1; }
+
+  Complex(T value) {}
+
+  <U> U transform(List<? extends T> input, U fallback) {
+    return fallback;
   }
+
+  class Inner {
+    String name;
+  }
+}
+
+enum State {
+  READY,
+  DONE
+}
+
+record Pair(int left, String right) {
+  Pair {}
 }`;
-            const tree = parser.parse(source);
-            const unit = parseUnit(tree, source);
-            const resolver = createTypeReferenceResolver(unit);
+            const complexUnit = parseUnit(parser.parse(complexSource), complexSource);
+            const complexResolver = createDeclarationResolver(complexUnit, [
+                {
+                    name: "String",
+                    qualifiedName: "java.lang.String",
+                    packageName: "java.lang",
+                    moduleName: null,
+                },
+                {
+                    name: "List",
+                    qualifiedName: "java.util.List",
+                    packageName: "java.util",
+                    moduleName: null,
+                },
+            ]);
 
-            const resolved = resolver.resolveAll();
+            const counter = complexResolver.resolveAt(complexSource.indexOf("counter") + 1);
+            expect(counter?.kind).to.equal("field");
+            expect(counter?.name).to.equal("counter");
+            expect(counter?.descriptor).to.equal("I");
+            expect(counter?.owner).to.equal("com/test/Complex");
 
-            expect(resolved.length).to.be.greaterThan(0);
+            const items = complexResolver.resolveAt(complexSource.indexOf("items") + 1);
+            expect(items?.kind).to.equal("field");
+            expect(items?.name).to.equal("items");
+            expect(items?.descriptor).to.equal("Ljava/util/List;");
+            expect(items?.owner).to.equal("com/test/Complex");
 
-            const listRefs = resolved.filter((r) => r.name === "List");
-            expect(listRefs.length).to.be.greaterThan(0);
+            const value = complexResolver.resolveAt(complexSource.indexOf("T value") + "T ".length + 1);
+            expect(value?.kind).to.equal("field");
+            expect(value?.name).to.equal("value");
+            expect(value?.descriptor).to.equal("Ljava/lang/Object;");
+            expect(value?.owner).to.equal("com/test/Complex");
 
-            const mapRefs = resolved.filter((r) => r.name === "Map");
-            expect(mapRefs.length).to.be.greaterThan(0);
-            expect(mapRefs[0].kind).to.equal("imported");
+            const initializer = complexResolver.resolveAt(complexSource.indexOf("static {") + 1);
+            expect(initializer?.kind).to.equal("staticInitializer");
+            expect(initializer?.name).to.equal("<clinit>");
+            expect(initializer?.descriptor).to.equal("()V");
+            expect(initializer?.owner).to.equal("com/test/Complex");
 
-            const stringRefs = resolved.filter((r) => r.name === "String");
-            expect(stringRefs.length).to.be.greaterThan(1);
-        });
+            const constructor = complexResolver.resolveAt(complexSource.indexOf("Complex(T") + 1);
+            expect(constructor?.kind).to.equal("constructor");
+            expect(constructor?.name).to.equal("<init>");
+            expect(constructor?.descriptor).to.equal("(Ljava/lang/Object;)V");
+            expect(constructor?.owner).to.equal("com/test/Complex");
 
-        it("should resolve all types with wildcard imports", () => {
-            const source = readFileSync("samples/sample/generics/GenericListWrapper.java", "utf-8");
-            const tree = parser.parse(source);
-            const unit = parseUnit(tree, source);
-            const resolver = createTypeReferenceResolver(unit);
+            const transform = complexResolver.resolveAt(complexSource.indexOf("transform") + 1);
+            expect(transform?.kind).to.equal("method");
+            expect(transform?.name).to.equal("transform");
+            expect(transform?.descriptor).to.equal("(Ljava/util/List;Ljava/lang/Object;)Ljava/lang/Object;");
+            expect(transform?.owner).to.equal("com/test/Complex");
 
-            const resolved = resolver.resolveAll();
+            const innerName = complexResolver.resolveAt(complexSource.indexOf("String name") + "String ".length + 1);
+            expect(innerName?.kind).to.equal("field");
+            expect(innerName?.name).to.equal("name");
+            expect(innerName?.descriptor).to.equal("Ljava/lang/String;");
+            expect(innerName?.owner).to.equal("com/test/Complex$Inner");
 
-            expect(resolved.length).to.be.greaterThan(0);
+            const enumConstant = complexResolver.resolveAt(complexSource.indexOf("DONE") + 1);
+            expect(enumConstant?.kind).to.equal("constant");
+            expect(enumConstant?.name).to.equal("DONE");
+            expect(enumConstant?.descriptor).to.equal("Lcom/test/State;");
+            expect(enumConstant?.owner).to.equal("com/test/State");
 
-            const declaredTypes = resolved.filter((r) => r.kind === "declared");
-            expect(declaredTypes.some((r) => r.name === "GenericListWrapper")).to.be.true;
+            const compactConstructor = complexResolver.resolveAt(complexSource.indexOf("Pair {}") + 1);
+            expect(compactConstructor?.kind).to.equal("constructor");
+            expect(compactConstructor?.name).to.equal("<init>");
+            expect(compactConstructor?.descriptor).to.equal("(ILjava/lang/String;)V");
+            expect(compactConstructor?.owner).to.equal("com/test/Pair");
         });
     });
 
-    /*describe("Java25Test.java - Java 25 features", () => {
-        const source = readFileSync("samples/Java25Test.java", "utf-8");
-        const tree = parser.parse(source);
-        const unit = parseUnit(tree, source);
-        const resolver = createTypeReferenceResolver(unit);
-
-        it("should print all resolved types and their offsets", () => {
-            const toLineCol = (offset: number): string => {
-                const lines = source.slice(0, offset).split("\n");
-                const line = lines.length;
-                const col = lines[lines.length - 1].length + 1;
-                return `${line}:${col}`;
-            };
-
-            const resolved = resolver.resolveAll();
-
-            console.log(`\nResolved ${resolved.length} type reference(s) in Java25Test.java:\n`);
-            for (const r of resolved) {
-                if (r.kind === "builtin") {
-                    continue;
-                }
-
-                const { from, to } = r.ref.node;
-                const snippet = source.slice(from, to);
-                console.log(`  [${toLineCol(from)}-${toLineCol(to)}] kind=${r.kind} name="${r.name}"${r.qualifiedName !== r.name ? ` qualifiedName="${r.qualifiedName}"` : ""} text="${snippet}"`);
-            }
-
-            expect(resolved.length).to.be.greaterThan(0);
-        });
-    });*/
 });
