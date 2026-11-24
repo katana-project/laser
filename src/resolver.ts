@@ -490,6 +490,26 @@ const getUnqualifiedDescriptorName = (
     context: SyntaxNode | null = null,
     visited: Set<string> = new Set()
 ): string => {
+    for (const imp of unit.imports) {
+        if (imp.kind !== "type") continue;
+
+        const matchesName =
+            imp.importedName === name ||
+            imp.importedName.endsWith(`.${name}`);
+        if (!matchesName) continue;
+
+        const matchingExternal = externalRefs.find(
+            (external) =>
+                external.qualifiedName === imp.importedName ||
+                external.qualifiedName.replace(/\$/g, ".") === imp.importedName
+        );
+        if (matchingExternal) {
+            return matchingExternal.qualifiedName.replace(/\./g, "/");
+        }
+
+        return imp.importedName.replace(/\./g, "/");
+    }
+
     const exactExternal = externalRefs.find((external) => external.qualifiedName === name);
     if (exactExternal) {
         return exactExternal.qualifiedName.replace(/\./g, "/");
@@ -510,12 +530,6 @@ const getUnqualifiedDescriptorName = (
     );
     if (javaLangExternal) {
         return javaLangExternal.qualifiedName.replace(/\./g, "/");
-    }
-
-    for (const imp of unit.imports) {
-        if (imp.kind === "type" && (imp.importedName === name || imp.importedName.endsWith(`.${name}`))) {
-            return imp.importedName.replace(/\./g, "/");
-        }
     }
 
     const local = unit.types.find(

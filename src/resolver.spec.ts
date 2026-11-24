@@ -841,6 +841,43 @@ class Example {
             expect(resolved?.owner).to.equal("com/test/Example");
         });
 
+        it("should prefer an imported inner class over external refs with the same name", () => {
+            const importedSource = `package com.test;
+import com.forge.RegistryEvent.Register;
+import com.forge.SoundEvent;
+class RegistryHandler {
+  public void soundRegistryEvent(Register<SoundEvent> event) {}
+}`;
+            const importedUnit = parseUnit(parser.parse(importedSource), importedSource);
+            const importedResolver = createDeclarationResolver(importedUnit, [
+                {
+                    name: "Register",
+                    qualifiedName: "com.other.RegistryEvent$Register",
+                    packageName: "com.other",
+                    moduleName: null,
+                },
+                {
+                    name: "Register",
+                    qualifiedName: "com.forge.RegistryEvent$Register",
+                    packageName: "com.forge",
+                    moduleName: null,
+                },
+                {
+                    name: "SoundEvent",
+                    qualifiedName: "com.forge.SoundEvent",
+                    packageName: "com.forge",
+                    moduleName: null,
+                },
+            ]);
+
+            const resolved = importedResolver.resolveAt(importedSource.indexOf("soundRegistryEvent") + 1);
+            expect(resolved?.kind).to.equal("method");
+            expect(resolved?.name).to.equal("soundRegistryEvent");
+            expect(resolved?.descriptor).to.equal(
+                "(Lcom/forge/RegistryEvent$Register;)V"
+            );
+        });
+
         it("should resolve annotated nested generic parameter descriptors", () => {
             const annotatedSource = `package com.test;
 class RegistryHandler {
