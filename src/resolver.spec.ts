@@ -841,6 +841,50 @@ class Example {
             expect(resolved?.owner).to.equal("com/test/Example");
         });
 
+        it("should resolve annotated nested generic parameter descriptors", () => {
+            const annotatedSource = `package com.test;
+class RegistryHandler {
+  public void soundRegistryEvent(@Nonnull RegistryEvent.Register<SoundEvent> event) {}
+}`;
+            const annotatedUnit = parseUnit(parser.parse(annotatedSource), annotatedSource);
+            const annotatedResolver = createDeclarationResolver(annotatedUnit, [
+                {
+                    name: "Register",
+                    qualifiedName: "com.example.RegistryEvent$Register",
+                    packageName: "com.example",
+                    moduleName: null,
+                },
+                {
+                    name: "SoundEvent",
+                    qualifiedName: "com.example.SoundEvent",
+                    packageName: "com.example",
+                    moduleName: null,
+                },
+            ]);
+
+            const resolved = annotatedResolver.resolveAt(
+                annotatedSource.indexOf("soundRegistryEvent") + 1
+            );
+            expect(resolved?.kind).to.equal("method");
+            expect(resolved?.name).to.equal("soundRegistryEvent");
+            expect(resolved?.descriptor).to.equal(
+                "(Lcom/example/RegistryEvent$Register;)V"
+            );
+        });
+
+        it("should not resolve declarations from parameter or body offsets", () => {
+            const offsetSource = `package com.test;
+class Example {
+  void run(int value) {}
+}`;
+            const offsetUnit = parseUnit(parser.parse(offsetSource), offsetSource);
+            const offsetResolver = createDeclarationResolver(offsetUnit);
+
+            expect(offsetResolver.resolveAt(offsetSource.indexOf("int value"))).to.be.null;
+            expect(offsetResolver.resolveAt(offsetSource.indexOf("{}") + 1)).to.be.null;
+            expect(offsetResolver.resolveAt(offsetSource.indexOf("run") + 1)?.name).to.equal("run");
+        });
+
         it("should resolve constructors", () => {
             const offset = source.indexOf("Example()") + 1;
             const resolved = resolver.resolveAt(offset);
@@ -1065,7 +1109,7 @@ class Outer {
             ]);
 
             const constructor = resolver.resolveAt(
-                source.indexOf("FlexibleConnection(String") + "FlexibleConnection(".length + 1
+                source.indexOf("FlexibleConnection(String") + 1
             );
             expect(constructor?.kind).to.equal("constructor");
             expect(constructor?.name).to.equal("<init>");

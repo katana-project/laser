@@ -495,6 +495,16 @@ const getUnqualifiedDescriptorName = (
         return exactExternal.qualifiedName.replace(/\./g, "/");
     }
 
+    const qualifiedOrNestedExternal = externalRefs.find(
+        (external) =>
+            external.qualifiedName.endsWith(`.${name}`) ||
+            external.name === name ||
+            external.name === name.split(".")[name.split(".").length - 1]
+    );
+    if (qualifiedOrNestedExternal) {
+        return qualifiedOrNestedExternal.qualifiedName.replace(/\./g, "/");
+    }
+
     const javaLangExternal = externalRefs.find(
         (external) => external.packageName === "java.lang" && external.name === name
     );
@@ -508,7 +518,12 @@ const getUnqualifiedDescriptorName = (
         }
     }
 
-    const local = unit.types.find((type) => type.name === name);
+    const local = unit.types.find(
+        (type) =>
+            type.name === name ||
+            type.qualifiedName === name ||
+            type.qualifiedName.endsWith(`.${name}`)
+    );
     if (local) {
         return getOwnerName(unit, local.node);
     }
@@ -732,30 +747,34 @@ const declarationAtNode = (
     side: -1 | 0 | 1,
     externalRefs: ExternalTypeReference[]
 ): ResolvedDeclaration | null => {
-    let resolvedNode = unit.tree.resolveInner(offset, side);
-    let declaration = findDeclarationAncestor(resolvedNode);
-    if (!declaration) {
-        let nearest: SyntaxNode | null = null;
-        const findContainingDeclaration = (node: SyntaxNode) => {
-            if (DECLARATION_NAMES.has(node.name) && node.from <= offset && offset <= node.to) {
-                if (!nearest || node.to - node.from < nearest.to - nearest.from) nearest = node;
-            }
-            let child = node.firstChild;
-            while (child) {
-                findContainingDeclaration(child);
-                child = child.nextSibling;
-            }
-        };
-        findContainingDeclaration(unit.tree.topNode);
-        declaration = nearest;
-    }
+    const resolvedNode = unit.tree.resolveInner(offset, side);
+    const declaration = findDeclarationAncestor(resolvedNode);
     if (!declaration) return null;
+
+    const isNameOffset = (nameNode: SyntaxNode | null): boolean =>
+        nameNode !== null && nameNode.from <= offset && offset <= nameNode.to;
 
     if (declaration.name === "FieldDeclaration") {
         const fields = getFieldNameAndType(declaration, unit, unit.source, externalRefs);
         const containing = fields.find((field) => field.node.from <= offset && offset <= field.node.to);
         return containing ?? null;
     }
+
+    if (declaration.name === "StaticInitializer") {
+        const staticNode = findChild(declaration, (node) => node.name === "static");
+        return isNameOffset(staticNode) ? resolveDeclarationInfo(declaration, unit, externalRefs) : null;
+    }
+
+    if (declaration.name === "EnumConstant" || declaration.name === "ConstantDeclaration") {
+        const definition =
+            declaration.name === "EnumConstant"
+                ? findDescendantDefinition(declaration)
+                : findDefinition(findChild(declaration, (node) => node.name === "VariableDeclarator") ?? declaration);
+        return isNameOffset(definition) ? resolveDeclarationInfo(declaration, unit, externalRefs) : null;
+    }
+
+    const definition = findDefinition(declaration);
+    if (!isNameOffset(definition)) return null;
 
     return resolveDeclarationInfo(declaration, unit, externalRefs);
 };
