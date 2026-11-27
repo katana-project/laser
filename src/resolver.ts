@@ -35,6 +35,8 @@ export interface ExternalTypeReference extends TypeReference {
 export interface Resolved {
     name: string;
     category: "type" | "declaration";
+    ref: LocalTypeReference;
+    declaration?: SyntaxNode;
 }
 
 /**
@@ -45,11 +47,7 @@ export interface Resolved {
 export interface ResolvedType extends Resolved {
     category: "type";
     kind: "declared" | "imported" | "builtin";
-    name: string;
     qualifiedName?: string;
-    declaration?: SyntaxNode;
-
-    ref: LocalTypeReference;
 }
 
 const BUILTIN_TYPES = new Set(["byte", "short", "int", "long", "char", "float", "double", "boolean", "void"]);
@@ -373,10 +371,8 @@ export type DeclarationKind = "field" | "constant" | "method" | "constructor" | 
 export interface ResolvedDeclaration extends Resolved {
     category: "declaration";
     kind: DeclarationKind;
-    name: string;
     descriptor: string;
     owner: string;
-    node: SyntaxNode;
     declaration: SyntaxNode;
 }
 
@@ -452,6 +448,11 @@ const findDefinition = (node: SyntaxNode): SyntaxNode | null => findChild(node, 
 const findDescendantDefinition = (node: SyntaxNode): SyntaxNode | null =>
     findDescendants(node, (child) => child.name === "Definition")[0] ?? null;
 
+const createLocalReference = (source: string, node: SyntaxNode): LocalTypeReference => ({
+    name: source.slice(node.from, node.to),
+    node,
+});
+
 const getOwnerName = (unit: CompilationUnit, ownerNode: SyntaxNode): string => {
     const type = unit.types.find(
         (candidate) =>
@@ -493,9 +494,7 @@ const getUnqualifiedDescriptorName = (
     for (const imp of unit.imports) {
         if (imp.kind !== "type") continue;
 
-        const matchesName =
-            imp.importedName === name ||
-            imp.importedName.endsWith(`.${name}`);
+        const matchesName = imp.importedName === name || imp.importedName.endsWith(`.${name}`);
         if (!matchesName) continue;
 
         const matchingExternal = externalRefs.find(
@@ -533,10 +532,7 @@ const getUnqualifiedDescriptorName = (
     }
 
     const local = unit.types.find(
-        (type) =>
-            type.name === name ||
-            type.qualifiedName === name ||
-            type.qualifiedName.endsWith(`.${name}`)
+        (type) => type.name === name || type.qualifiedName === name || type.qualifiedName.endsWith(`.${name}`)
     );
     if (local) {
         return getOwnerName(unit, local.node);
@@ -640,7 +636,7 @@ const getFieldNameAndType = (
                 name: source.slice(definition.from, definition.to),
                 descriptor,
                 owner,
-                node: definition,
+                ref: createLocalReference(source, definition),
                 declaration,
             });
         }
@@ -661,13 +657,14 @@ const resolveDeclarationInfo = (
     const owner = ownerNode ? getOwnerName(unit, ownerNode) : "";
 
     if (declaration.name === "StaticInitializer") {
+        const staticNode = findChild(declaration, (node) => node.name === "static") ?? declaration;
         return {
             category: "declaration",
             kind: "staticInitializer",
             name: "<clinit>",
             descriptor: "()V",
             owner,
-            node: declaration,
+            ref: createLocalReference(unit.source, staticNode),
             declaration,
         };
     }
@@ -684,7 +681,7 @@ const resolveDeclarationInfo = (
             name: unit.source.slice(definition.from, definition.to),
             descriptor: getDescriptorType(typeNode, unit, unit.source, externalRefs, declaration),
             owner,
-            node: definition,
+            ref: createLocalReference(unit.source, definition),
             declaration,
         };
     }
@@ -699,7 +696,7 @@ const resolveDeclarationInfo = (
             name: unit.source.slice(definition.from, definition.to),
             descriptor: declaration.name === "EnumConstant" && owner ? `L${owner};` : "V",
             owner,
-            node: definition,
+            ref: createLocalReference(unit.source, definition),
             declaration,
         };
     }
@@ -750,7 +747,7 @@ const resolveDeclarationInfo = (
         name,
         descriptor: `(${parameterDescriptors.join("")})${returnDescriptor}`,
         owner,
-        node: definition,
+        ref: createLocalReference(unit.source, definition),
         declaration,
     };
 };
@@ -770,7 +767,7 @@ const declarationAtNode = (
 
     if (declaration.name === "FieldDeclaration") {
         const fields = getFieldNameAndType(declaration, unit, unit.source, externalRefs);
-        const containing = fields.find((field) => field.node.from <= offset && offset <= field.node.to);
+        const containing = fields.find((field) => field.ref.node.from <= offset && offset <= field.ref.node.to);
         return containing ?? null;
     }
 
@@ -794,7 +791,28 @@ const declarationAtNode = (
 };
 
 /**
- * Creates a resolver for field and method declarations in a compilation unit.
+ * Creates a resolver for field, constant, method, constructor, and initializer declarations.
+ *
+ * A declaration is resolved only when `offset` points to its name (or to `static` for a static
+ * initializer). Descriptors use JVM format. Supply external type references to resolve imported
+ * types in declaration descriptors.
+ *
+ * @param unit - The compilation unit to analyze
+ * @param refs - Optional external types used to resolve declaration descriptor names
+ * @returns A resolver for declarations in `unit`
+ *
+ * @example
+ * ```typescript
+ * const resolver = createDeclarationResolver(unit, [
+ *   {
+ *     name: "String",
+ *     qualifiedName: "java.lang.String",
+ *     packageName: "java.lang",
+ *     moduleName: null,
+ *   },
+ * ]);
+ * const declaration = resolver.resolveAt(source.indexOf("name") + 1);
+ * ```
  */
 export const createDeclarationResolver = (
     unit: CompilationUnit,
@@ -817,7 +835,27 @@ export interface CompositeResolver {
 }
 
 /**
- * Creates a composite resolver that checks declarations before type references.
+ * Creates a resolver that resolves either declarations or type references at an offset.
+ *
+ * Declaration names are checked first; if no declaration name is present at the offset, the
+ * resolver attempts to resolve a type reference. External type references are passed to both
+ * underlying resolvers.
+ *
+ * @param unit - The compilation unit to analyze
+ * @param refs - Optional external types used to resolve imported types and declaration descriptors
+ * @returns A resolver for declarations and type references in `unit`
+ *
+ * @example
+ * ```typescript
+ * const resolver = createCompositeResolver(unit, externalTypes);
+ * const resolved = resolver.resolveAt(offset);
+ *
+ * if (resolved?.category === "declaration") {
+ *   console.log(resolved.name, resolved.ref.node);
+ * } else if (resolved?.category === "type") {
+ *   console.log(resolved.name, resolved.kind);
+ * }
+ * ```
  */
 export const createCompositeResolver = (
     unit: CompilationUnit,

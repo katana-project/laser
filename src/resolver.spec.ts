@@ -773,7 +773,6 @@ public class AnnotatedWithArrays {
             expect(unit.types).to.have.lengthOf(1);
             expect(unit.types[0].name).to.equal("BinarySearch");
         });
-
     });
 
     describe("Declaration Resolver", () => {
@@ -820,6 +819,8 @@ class Example {
             expect(resolved?.name).to.equal("age");
             expect(resolved?.descriptor).to.equal("I");
             expect(resolved?.owner).to.equal("com/test/Example");
+            expect(resolved?.ref.name).to.equal("age");
+            expect(source.slice(resolved!.ref.node.from, resolved!.ref.node.to)).to.equal("age");
         });
 
         it("should resolve array field descriptors", () => {
@@ -873,9 +874,7 @@ class RegistryHandler {
             const resolved = importedResolver.resolveAt(importedSource.indexOf("soundRegistryEvent") + 1);
             expect(resolved?.kind).to.equal("method");
             expect(resolved?.name).to.equal("soundRegistryEvent");
-            expect(resolved?.descriptor).to.equal(
-                "(Lcom/forge/RegistryEvent$Register;)V"
-            );
+            expect(resolved?.descriptor).to.equal("(Lcom/forge/RegistryEvent$Register;)V");
         });
 
         it("should resolve annotated nested generic parameter descriptors", () => {
@@ -899,14 +898,10 @@ class RegistryHandler {
                 },
             ]);
 
-            const resolved = annotatedResolver.resolveAt(
-                annotatedSource.indexOf("soundRegistryEvent") + 1
-            );
+            const resolved = annotatedResolver.resolveAt(annotatedSource.indexOf("soundRegistryEvent") + 1);
             expect(resolved?.kind).to.equal("method");
             expect(resolved?.name).to.equal("soundRegistryEvent");
-            expect(resolved?.descriptor).to.equal(
-                "(Lcom/example/RegistryEvent$Register;)V"
-            );
+            expect(resolved?.descriptor).to.equal("(Lcom/example/RegistryEvent$Register;)V");
         });
 
         it("should not resolve declarations from parameter or body offsets", () => {
@@ -1099,9 +1094,7 @@ class Outer {
             const field = resolver.resolveAt(fieldOffset);
             expect(field?.kind).to.equal("field");
             expect(field?.name).to.equal("DEFAULT_TYPE_VALIDATION");
-            expect(field?.descriptor).to.equal(
-                "Lnet/bytebuddy/dynamic/scaffold/TypeValidation;"
-            );
+            expect(field?.descriptor).to.equal("Lnet/bytebuddy/dynamic/scaffold/TypeValidation;");
             expect(field?.owner).to.equal("net/bytebuddy/ByteBuddy");
 
             const initializer = resolver.resolveAt(source.indexOf("static {") + 1);
@@ -1119,12 +1112,8 @@ class Outer {
             const method = resolver.resolveAt(source.indexOf("extractConstructors") + 1);
             expect(method?.kind).to.equal("method");
             expect(method?.name).to.equal("extractConstructors");
-            expect(method?.descriptor).to.equal(
-                "(Lnet/bytebuddy/description/type/TypeDescription;)Ljava/util/List;"
-            );
-            expect(method?.owner).to.equal(
-                "net/bytebuddy/ByteBuddy$RecordConstructorStrategy"
-            );
+            expect(method?.descriptor).to.equal("(Lnet/bytebuddy/description/type/TypeDescription;)Ljava/util/List;");
+            expect(method?.owner).to.equal("net/bytebuddy/ByteBuddy$RecordConstructorStrategy");
         });
 
         it("should resolve declarations from Java25Test.java", () => {
@@ -1145,9 +1134,7 @@ class Outer {
                 },
             ]);
 
-            const constructor = resolver.resolveAt(
-                source.indexOf("FlexibleConnection(String") + 1
-            );
+            const constructor = resolver.resolveAt(source.indexOf("FlexibleConnection(String") + 1);
             expect(constructor?.kind).to.equal("constructor");
             expect(constructor?.name).to.equal("<init>");
             expect(constructor?.descriptor).to.equal("(Ljava/lang/String;)V");
@@ -1262,5 +1249,4 @@ record Pair(int left, String right) {
             expect(compactConstructor?.owner).to.equal("com/test/Pair");
         });
     });
-
 });
