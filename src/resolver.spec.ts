@@ -1,7 +1,7 @@
 import { parser } from "@run-slicer/lezer-java";
 import { expect } from "chai";
 import { readFileSync } from "fs";
-import { createCompositeResolver, createDeclarationResolver, createTypeReferenceResolver } from "./resolver.js";
+import { createCompositeResolver, createDeclarationResolver, createTypeReferenceResolver } from "./";
 import { parseUnit } from "./unit";
 
 describe("Type Reference Resolver", () => {
